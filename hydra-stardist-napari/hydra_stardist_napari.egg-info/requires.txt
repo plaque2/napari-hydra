@@ -1,0 +1,6 @@
+napari[all]
+csbdeep>=0.7.4
+scikit-image
+numba
+imageio
+stardist>=0.9.1

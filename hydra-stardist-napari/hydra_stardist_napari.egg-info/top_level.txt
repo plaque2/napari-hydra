@@ -1,0 +1,2 @@
+hydra_stardist_napari
+hydrastardist

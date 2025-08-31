@@ -1,0 +1,29 @@
+Metadata-Version: 2.4
+Name: hydra-stardist-napari
+Version: 0.0.1
+Summary: A Simple Graphical Interface for Automatic Clonal Cell Counting
+Home-page: https://github.com/casus/HydraStarDist
+Author: Henrique Romão, Artur Yakimovich, Trina De
+Author-email: Henrique Romão <henriquepromao@outlook.com>, Artur Yakimovich <ayakimovich@ails.institute>
+License-Expression: BSD-3-Clause
+Project-URL: Homepage, https://github.com/casus/HydraStarDist
+Project-URL: Issues, https://github.com/casus/HydraStarDist/issues
+Classifier: Framework :: napari
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: Science/Research
+Classifier: Topic :: Scientific/Engineering
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3.6
+Classifier: Programming Language :: Python :: 3.7
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Requires-Python: >=3.6
+Description-Content-Type: text/markdown
+Requires-Dist: napari[all]
+Requires-Dist: csbdeep>=0.7.4
+Requires-Dist: scikit-image
+Requires-Dist: numba
+Requires-Dist: imageio
+Requires-Dist: stardist>=0.9.1
