@@ -1,5 +1,15 @@
-**/__pycache__/**
-**/resources/models/**
-***.egg-info/**
-**.DS_Store**
-**__MACOSX**
+# Python byte-compiled / cache directories
+__pycache__/
+**/__pycache__/
+
+# Project resource models (recursive)
+resources/models/
+**/resources/models/
+
+# egg-info directories created by packaging
+*.egg-info/
+**/*.egg-info/
+
+# macOS Finder metadata
+.DS_Store
+__MACOSX/
