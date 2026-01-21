@@ -1,2 +1,0 @@
-[napari.manifest]
-napari-deep-plaque = hydra_stardist_napari:napari.yaml
