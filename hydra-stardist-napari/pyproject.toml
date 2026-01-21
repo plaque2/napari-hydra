@@ -32,8 +32,14 @@ dependencies = [
     "csbdeep>=0.7.4",
     "scikit-image",
     "numba",
-    "imageio",
-    "stardist>=0.9.1"
+  "imageio",
+  "stardist>=0.9.1",
+  # TensorFlow is required at runtime by the package (tensorflow.keras is used
+  # extensively). Add a conservative >=2.6 bound because the code expects
+  # features available in TF 2.6+ (see hydrastardist/utils/tf.py).
+  # We also require the standalone `keras` package for TF >= 2.6.
+  "tensorflow>=2.6",
+  "typing_extensions>=4.12",
 ]
 
 [project.urls]

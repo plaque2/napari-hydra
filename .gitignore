@@ -1,2 +1,5 @@
-**/_pycache_/
-**/resources/models/
+**/__pycache__/**
+**/resources/models/**
+***.egg-info/**
+**.DS_Store**
+**__MACOSX**

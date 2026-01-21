@@ -2,6 +2,10 @@ import os
 import numpy as np
 from skimage import img_as_float32
 from skimage.draw import polygon
+import urllib.request
+import zipfile
+import shutil
+import tempfile
 
 import dask.array as da
 import napari
@@ -26,6 +30,8 @@ class HydraStarDistPlugin(QWidget):
     """
     Hydra StarDist Plugin for Napari
     """
+    # Default model ZIP to download when no local models are present
+    ZIP_URL = "https://rodare.hzdr.de/record/4439/files/model_vacvplaque_hsd.zip?download=1"
     def __init__(self, viewer: napari.Viewer = None):
         """
         Initialized the plugin:
@@ -99,7 +105,51 @@ class HydraStarDistPlugin(QWidget):
         selection_grid.addWidget(QLabel("Model"), 0, 1)
         self.model_combo = QComboBox()
         model_basedir = os.path.join(plugin_dir, "resources", "models")
-        self.model_names = [name for name in os.listdir(model_basedir) if os.path.isdir(os.path.join(model_basedir, name))]
+
+        # Ensure models directory exists
+        os.makedirs(model_basedir, exist_ok=True)
+
+        # If no model subfolders are present, attempt to download the default model zip
+        def _ensure_default_model(dest_dir):
+            # Check for any directory in models folder
+            dirs = [name for name in os.listdir(dest_dir) if os.path.isdir(os.path.join(dest_dir, name))]
+            if dirs:
+                return dirs
+
+            zip_url = HydraStarDistPlugin.ZIP_URL
+            # Download into a temp file then extract
+            try:
+                show_info("No models found locally — attempting to download default model (this may take a while)...")
+            except Exception:
+                pass
+
+            try:
+                fd, tmp_path = tempfile.mkstemp(suffix=".zip")
+                os.close(fd)
+                # download
+                urllib.request.urlretrieve(zip_url, tmp_path)
+                # extract
+                try:
+                    with zipfile.ZipFile(tmp_path, 'r') as zf:
+                        zf.extractall(dest_dir)
+                except zipfile.BadZipFile:
+                    # fallback to shutil.unpack_archive which may handle other formats
+                    shutil.unpack_archive(tmp_path, dest_dir)
+                finally:
+                    try:
+                        os.remove(tmp_path)
+                    except Exception:
+                        pass
+            except Exception as e:
+                try:
+                    show_info(f"Failed to download default model: {e}")
+                except Exception:
+                    pass
+
+            # return any directories found after attempted download
+            return [name for name in os.listdir(dest_dir) if os.path.isdir(os.path.join(dest_dir, name))]
+
+        self.model_names = _ensure_default_model(model_basedir)
         self.model_combo.addItems(self.model_names)
 
         if "VACV-Plaque" in self.model_names:
