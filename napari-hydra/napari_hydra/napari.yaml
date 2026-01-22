@@ -4,7 +4,7 @@ contributions:
   commands:
     - id: napari-hydra.hydra_widget
       title: Hydra StarDist
-      python_name: hydra_stardist_napari.napari_hydra_plugin:HydraStarDistPlugin
+      python_name: napari_hydra.napari_hydra_plugin:HydraStarDistPlugin
   widgets:
     - command: napari-hydra.hydra_widget
       display_name: Hydra StarDist

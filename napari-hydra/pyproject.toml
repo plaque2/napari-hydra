@@ -44,4 +44,4 @@ Homepage = "https://github.com/casus/HydraStarDist"
 Issues = "https://github.com/casus/HydraStarDist/issues"
 
 [project.entry-points."napari.manifest"]
-napari-hydra = "hydra_stardist_napari:napari.yaml"
+napari-hydra = "napari_hydra:napari.yaml"
