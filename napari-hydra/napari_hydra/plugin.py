@@ -760,6 +760,11 @@ class HydraStarDistPlugin(QWidget):
         if not selected_name:
             print("No image layer selected.")
             return
+        # Check if selected layer still exists in the viewer
+        if selected_name not in self.viewer.layers:
+            print(f"Selected layer '{selected_name}' not found in viewer. Refreshing layer list.")
+            self.refresh_image_layers()
+            return
         image_layer = self.viewer.layers[selected_name]
         # Convert Dask array to numpy if needed
         if isinstance(image_layer, Labels) and isinstance(image_layer.data, da.Array):
@@ -929,6 +934,11 @@ class HydraStarDistPlugin(QWidget):
         if not selected_name:
             QMessageBox.warning(self, "Export Prediction", "No image layer selected.")
             return
+        # Check if selected layer still exists in the viewer
+        if selected_name not in self.viewer.layers:
+            QMessageBox.warning(self, "Export Prediction", f"Selected layer '{selected_name}' not found in viewer.")
+            self.refresh_image_layers()
+            return
 
         wells_layer_name = f"{selected_name} Wells"
         plaque_layer_name = f"{selected_name} Plaque"
@@ -1008,6 +1018,11 @@ class HydraStarDistPlugin(QWidget):
         selected_name = self.image_layer_combo.currentText()
         if not selected_name:
             print("No image layer selected.")
+            return
+        # Check if selected layer still exists in the viewer
+        if selected_name not in self.viewer.layers:
+            print(f"Selected layer '{selected_name}' not found in viewer. Refreshing layer list.")
+            self.refresh_image_layers()
             return
         wells_layer_name = f"{selected_name} Wells"
         plaque_layer_name = f"{selected_name} Plaque"
