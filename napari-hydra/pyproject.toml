@@ -3,13 +3,13 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hydra-stardist-napari"
+name = "napari-hydra"
 version = "0.0.1"
 authors = [
   { name="Henrique Romão", email="henriquepromao@outlook.com" },
-  { name="Artur Yakimovich", email="ayakimovich@ails.institute" },
+  { name="Artur Yakimovich", email="a.yakimovich@hzdr.de" },
 ]
-description = "A Simple Graphical Interface for Automatic Clonal Cell Counting"
+description = "Napari Hydra Plugin - GUI-based nested object detection"
 readme = "README.md"
 requires-python = ">=3.6"
 classifiers = [
@@ -18,9 +18,6 @@ classifiers = [
     'Intended Audience :: Science/Research',
     'Topic :: Scientific/Engineering',
     'Operating System :: OS Independent',
-    'Programming Language :: Python :: 3.6',
-    'Programming Language :: Python :: 3.7',
-    'Programming Language :: Python :: 3.8',
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',
@@ -45,3 +42,6 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/casus/HydraStarDist"
 Issues = "https://github.com/casus/HydraStarDist/issues"
+
+[project.entry-points."napari.manifest"]
+napari-hydra = "napari_hydra:napari.yaml"
