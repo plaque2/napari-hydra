@@ -12,7 +12,7 @@ import functools
 import scipy.ndimage as ndi
 import numbers
 from csbdeep.models.base_model import BaseModel
-from hydrastardist.utils.tf import export_SavedModel, keras_import, IS_TF_1, CARETensorBoard
+from napari_hydra.hydrastardist.utils.tf import export_SavedModel, keras_import, IS_TF_1, CARETensorBoard
 
 import tensorflow as tf
 K = keras_import('backend')

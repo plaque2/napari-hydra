@@ -6,9 +6,9 @@ import math
 from tqdm import tqdm
 
 from csbdeep.models import BaseConfig
-from hydrastardist.blocks_hydra import unet_up_block, unet_down_block, ActivityRegularizationLayer
+from napari_hydra.hydrastardist.blocks_hydra import unet_up_block, unet_down_block, ActivityRegularizationLayer
 from csbdeep.utils import _raise, backend_channels_last, axes_check_and_normalize, axes_dict
-from hydrastardist.utils.tf import keras_import, IS_TF_1, CARETensorBoard, CARETensorBoardImage
+from napari_hydra.hydrastardist.utils.tf import keras_import, IS_TF_1, CARETensorBoard, CARETensorBoardImage
 from skimage.segmentation import clear_border
 from skimage.measure import regionprops
 from scipy.ndimage import zoom
@@ -19,7 +19,7 @@ K = keras_import('backend')
 Input, Conv2D, MaxPooling2D, Concatenate = keras_import('layers', 'Input', 'Conv2D', 'MaxPooling2D', 'Concatenate')
 Model = keras_import('models', 'Model')
 
-from hydrastardist.models.base_hydra import StarDistBase, _tf_version_at_least, StarDistDataBase, masked_loss_wbr
+from napari_hydra.hydrastardist.models.base_hydra import StarDistBase, _tf_version_at_least, StarDistDataBase, masked_loss_wbr
 from stardist.sample_patches import sample_patches
 from stardist.utils import edt_prob, _normalize_grid, mask_to_categorical
 from stardist.geometry import star_dist, dist_to_coord, polygons_to_label
