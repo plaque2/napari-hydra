@@ -20,6 +20,7 @@ from csbdeep.utils import normalize
 from stardist.utils import edt_prob
 from stardist.geometry import star_dist
 from napari_hydra.hydrastardist.models.model2d_hydra import Config2D, StarDist2D
+from napari_hydra.utils import rasterize_labels, ensure_default_model, is_image_stack
 
 import tensorflow as tf
 
@@ -110,46 +111,7 @@ class HydraStarDistPlugin(QWidget):
         os.makedirs(model_basedir, exist_ok=True)
 
         # If no model subfolders are present, attempt to download the default model zip
-        def _ensure_default_model(dest_dir):
-            # Check for any directory in models folder
-            dirs = [name for name in os.listdir(dest_dir) if os.path.isdir(os.path.join(dest_dir, name))]
-            if dirs:
-                return dirs
-
-            zip_url = HydraStarDistPlugin.ZIP_URL
-            # Download into a temp file then extract
-            try:
-                show_info("No models found locally — attempting to download default model (this may take a while)...")
-            except Exception:
-                pass
-
-            try:
-                fd, tmp_path = tempfile.mkstemp(suffix=".zip")
-                os.close(fd)
-                # download
-                urllib.request.urlretrieve(zip_url, tmp_path)
-                # extract
-                try:
-                    with zipfile.ZipFile(tmp_path, 'r') as zf:
-                        zf.extractall(dest_dir)
-                except zipfile.BadZipFile:
-                    # fallback to shutil.unpack_archive which may handle other formats
-                    shutil.unpack_archive(tmp_path, dest_dir)
-                finally:
-                    try:
-                        os.remove(tmp_path)
-                    except Exception:
-                        pass
-            except Exception as e:
-                try:
-                    show_info(f"Failed to download default model: {e}")
-                except Exception:
-                    pass
-
-            # return any directories found after attempted download
-            return [name for name in os.listdir(dest_dir) if os.path.isdir(os.path.join(dest_dir, name))]
-
-        self.model_names = _ensure_default_model(model_basedir)
+        self.model_names = ensure_default_model(model_basedir, HydraStarDistPlugin.ZIP_URL)
         self.model_combo.addItems(self.model_names)
 
         if "VACV-Plaque" in self.model_names:
@@ -158,6 +120,15 @@ class HydraStarDistPlugin(QWidget):
         selection_grid.addWidget(self.model_combo, 1, 1)
         layout.addLayout(selection_grid)
         layout.addSpacing(5)
+
+        if not self.model_names:
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setText("Default model download failed.")
+            msg.setInformativeText("Please check your internet connection and try again.")
+            msg.setWindowTitle("Download Error")
+            msg.exec_()
+            return
 
         # LOAD HYDRASTARDIST MODEL
         # searches for model and loads "VACV-Plaque" as default
@@ -680,80 +651,36 @@ class HydraStarDistPlugin(QWidget):
                 pass
             self.viewer.dims.events.current_step.connect(self.count_plaque)
 
-    def _is_image_stack(self, image):
-        """
-        Determine if an image array is a stack of frames or a single image.
-        
-        Heuristic: spatial dimensions (height, width) are consecutive and each >= 50 px.
-        Channels are 1-50. Frame count can be 1-N. Find which dimension is likely frames.
-        
-        Args:
-            image: numpy array of shape (ndim varies)
-        
-        Returns:
-            bool: True if image is a stack, False if it's a single image.
-        """
-        if image.ndim == 2:
-            # (height, width) - single 2D image
-            return False
-        elif image.ndim == 3:
-            # Could be (h, w, c), (n_frames, h, w), or other
-            dims = image.shape
-            
-            # Check if dims[0] and dims[1] are consecutive spatial dims (both >= 50)
-            if dims[0] >= 50 and dims[1] >= 50:
-                # dims[2] is likely channels (1-50) or frames (1-N)
-                if dims[2] <= 50:
-                    # Likely (h, w, c) - single image with channels
-                    return False
-                else:
-                    # dims[2] > 50, likely (h, w, frames) - stack without channels
-                    return True
-            # Check if dims[1] and dims[2] are consecutive spatial dims (both >= 50)
-            elif dims[1] >= 50 and dims[2] >= 50:
-                # dims[0] is likely frames or channels
-                if dims[0] <= 50:
-                    # Likely (frames/channels, h, w)
-                    if dims[0] == 1:
-                        return False  # Single frame
-                    else:
-                        return True   # Multiple frames
-                else:
-                    # All three dims >= 50, ambiguous - assume (h, w, c)
-                    return False
-            # Check if dims[0] and dims[2] are >= 50 (less likely but possible)
-            elif dims[0] >= 50 and dims[2] >= 50:
-                # dims[1] is small, likely channels
-                if dims[1] <= 50:
-                    # Likely (h, c, w) or permutation - assume single image
-                    return False
-                else:
-                    return False
-            else:
-                # No clear spatial dims >= 50, assume single image
-                return False
-        elif image.ndim == 4:
-            # Could be (n_frames, h, w, c) or (h, w, c, frames) or other
-            dims = image.shape
-            # Look for two consecutive dims >= 50 (spatial)
-            for i in range(len(dims) - 1):
-                if dims[i] >= 50 and dims[i+1] >= 50:
-                    # Found spatial dims at positions i and i+1
-                    # Check remaining dims: one should be frames, one should be channels
-                    other_dims = [dims[j] for j in range(4) if j != i and j != i+1]
-                    # If both other dims are small (<=50), likely frames and channels
-                    if all(d <= 50 for d in other_dims):
-                        # At least one should be > 1 to indicate multiple frames
-                        if max(other_dims) > 1:
-                            return True
-                        else:
-                            return False
-                    return False
-            # No consecutive spatial dims found
-            return False
+
+
+    def predict_single(self, img2d):
+        target_width = int(self.target_width_spin.value())
+        target_height = int(self.target_height_spin.value())
+        h0, w0 = img2d.shape[:2]
+        scale = min(w0 / target_width, h0 / target_height)
+        new_w = int(w0 / scale)
+        new_h = int(h0 / scale)
+        y_indices = np.linspace(0, h0 - 1, new_h).astype(int)
+        x_indices = np.linspace(0, w0 - 1, new_w).astype(int)
+        if img2d.ndim == 3:
+            resized = img2d[y_indices[:, None], x_indices[None, :], :]
         else:
-            # image.ndim > 4: assume stack (high-dimensional data)
-            return True
+            resized = img2d[y_indices[:, None], x_indices[None, :]]
+        img = img_as_float32(resized)
+        axis_norm = (0, 1)
+        img = normalize(img, 1, 99.8, axis=axis_norm)
+        labels1, labels2 = self.model.predict_instances(
+            img,
+            prob_thresh1=self.wells_prob_spin.value(),
+            prob_thresh2=self.plaques_prob_spin.value(),
+            nms_thresh1=self.wells_overlap_spin.value(),
+            nms_thresh2=self.plaques_overlap_spin.value()
+        )
+        labels1[1]['coord'] = [((coord[0] * scale).astype(int), (coord[1] * scale).astype(int)) for coord in labels1[1]['coord']]
+        labels2[1]['coord'] = [((coord[0] * scale).astype(int), (coord[1] * scale).astype(int)) for coord in labels2[1]['coord']]
+        labels1[1]['points'] = [((pt[0] * scale).astype(int), (pt[1] * scale).astype(int)) for pt in labels1[1]['points']]
+        labels2[1]['points'] = [((pt[0] * scale).astype(int), (pt[1] * scale).astype(int)) for pt in labels2[1]['points']]
+        return labels1[1], labels2[1]
 
     def run_prediction(self):
         selected_name = self.image_layer_combo.currentText()
@@ -781,54 +708,6 @@ class HydraStarDistPlugin(QWidget):
         # Get UI resize targets
         target_width = int(self.target_width_spin.value())
         target_height = int(self.target_height_spin.value())
-
-        # Helper for prediction on one frame
-        def predict_single(img2d):
-            h0, w0 = img2d.shape[:2]
-            scale = min(w0 / target_width, h0 / target_height)
-            new_w = int(w0 / scale)
-            new_h = int(h0 / scale)
-            y_indices = np.linspace(0, h0 - 1, new_h).astype(int)
-            x_indices = np.linspace(0, w0 - 1, new_w).astype(int)
-            if img2d.ndim == 3:
-                resized = img2d[y_indices[:, None], x_indices[None, :], :]
-            else:
-                resized = img2d[y_indices[:, None], x_indices[None, :]]
-            img = img_as_float32(resized)
-            axis_norm = (0, 1)
-            img = normalize(img, 1, 99.8, axis=axis_norm)
-            labels1, labels2 = self.model.predict_instances(
-                img,
-                prob_thresh1=self.wells_prob_spin.value(),
-                prob_thresh2=self.plaques_prob_spin.value(),
-                nms_thresh1=self.wells_overlap_spin.value(),
-                nms_thresh2=self.plaques_overlap_spin.value()
-            )
-            labels1[1]['coord'] = [((coord[0] * scale).astype(int), (coord[1] * scale).astype(int)) for coord in labels1[1]['coord']]
-            labels2[1]['coord'] = [((coord[0] * scale).astype(int), (coord[1] * scale).astype(int)) for coord in labels2[1]['coord']]
-            labels1[1]['points'] = [((pt[0] * scale).astype(int), (pt[1] * scale).astype(int)) for pt in labels1[1]['points']]
-            labels2[1]['points'] = [((pt[0] * scale).astype(int), (pt[1] * scale).astype(int)) for pt in labels2[1]['points']]
-            return labels1[1], labels2[1]
-
-        # Helper to get polygons and rasterize
-        def rasterize_labels(label_dict, out_shape):
-            unmatched_coords = label_dict["coord"]
-            poly_coords = []
-            for coord in unmatched_coords:
-                X = coord[0]
-                Y = coord[1]
-                single_polygon = [[X[i], Y[i]] for i in range(len(X))]
-                poly_coords.append(single_polygon)
-            labels_arr = np.zeros(out_shape, dtype=np.int32)
-            def scale_poly(poly):
-                poly = np.array(poly)
-                return poly
-            for label, poly in enumerate(poly_coords):
-                poly_scaled = scale_poly(poly)
-                rr, cc = polygon(poly_scaled[:, 0], poly_scaled[:, 1], shape=labels_arr.shape)
-                labels_arr[rr, cc] = label + 1
-            return labels_arr, poly_coords
-
         # Prepare colormaps
         color_dict = {0: (0, 0, 0, 0)}
         color_dict[None] = (1, 1, 1, 1)
@@ -875,7 +754,7 @@ class HydraStarDistPlugin(QWidget):
                     this_img = image[z]
                 if isinstance(this_img, da.Array):
                     this_img = this_img.compute()
-                well_labels, plaque_labels = predict_single(this_img)
+                well_labels, plaque_labels = self.predict_single(this_img)
                 if z == 0:
                     self.well_labels = well_labels
                     self.plaque_labels = plaque_labels
@@ -900,7 +779,7 @@ class HydraStarDistPlugin(QWidget):
                     self.viewer.dims.set_current_step(z_axis, n_frames - 1)
         else:
             h, w = image.shape[:2]
-            well_labels, plaque_labels = predict_single(image)
+            well_labels, plaque_labels = self.predict_single(image)
             self.well_labels = well_labels
             self.plaque_labels = plaque_labels
             wells_labels_arr, _ = rasterize_labels(well_labels, (h, w))
@@ -1039,7 +918,7 @@ class HydraStarDistPlugin(QWidget):
         plaque = plaque_layer.compute() if isinstance(plaque_layer, da.Array) else plaque_layer
 
         # Determine if input is a stack
-        is_stack = self._is_image_stack(image)
+        is_stack = is_image_stack(image)
         
         # If not a stack, wrap single image into a single-frame stack
         if not is_stack:
