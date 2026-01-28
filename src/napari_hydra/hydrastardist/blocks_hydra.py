@@ -3,8 +3,8 @@ from six.moves import range, zip, map, reduce, filter
 
 import math
 import tensorflow as tf
-from hydrastardist.utils import _raise, backend_channels_last
-from hydrastardist.models.base_hydra import masked_loss_wbr
+from napari_hydra.hydrastardist.utils import _raise, backend_channels_last
+from napari_hydra.hydrastardist.models.base_hydra import masked_loss_wbr
 from csbdeep.utils.tf import keras_import
 K = keras_import('backend')
 Layer, Conv2D, MaxPooling2D, UpSampling2D, Conv3D, MaxPooling3D, UpSampling3D, Cropping2D, Cropping3D, Concatenate, Add, Dropout, Activation, BatchNormalization = \

@@ -4,14 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "napari-hydra"
-version = "0.0.1"
+version = "0.0.2"
 authors = [
   { name="Henrique Romão", email="henriquepromao@outlook.com" },
+  { name="Trina De", email="t.de@hzdr.de" },
   { name="Artur Yakimovich", email="a.yakimovich@hzdr.de" },
 ]
 description = "Napari Hydra Plugin - GUI-based nested object detection"
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.9"
 classifiers = [
     'Framework :: napari',
     'Development Status :: 4 - Beta',
@@ -43,5 +44,27 @@ dependencies = [
 Homepage = "https://github.com/casus/HydraStarDist"
 Issues = "https://github.com/casus/HydraStarDist/issues"
 
+[project.optional-dependencies]
+tf1 = [
+    "csbdeep[tf1]>=0.7.4",
+]
+test = [
+    "pytest>=7.2.0",
+]
+bioimageio = [
+    "bioimageio.core>=0.5.0",
+    "importlib-metadata",
+]
+
 [project.entry-points."napari.manifest"]
 napari-hydra = "napari_hydra:napari.yaml"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = true
+
+[tool.setuptools.package-data]
+stardist = [
+    "kernels/*.cl",
+    "data/images/*",
+]

@@ -19,7 +19,7 @@ from qtpy.QtCore import Qt
 from csbdeep.utils import normalize
 from stardist.utils import edt_prob
 from stardist.geometry import star_dist
-from hydrastardist.models.model2d_hydra import Config2D, StarDist2D
+from napari_hydra.hydrastardist.models.model2d_hydra import Config2D, StarDist2D
 
 import tensorflow as tf
 
