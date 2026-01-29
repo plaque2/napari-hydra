@@ -3,6 +3,13 @@ import numpy as np
 def get_well_centers(wells_2d):
     """
     Extract unique well IDs and their centroids from a 2D label array.
+
+    Args:
+        wells_2d (numpy.ndarray): 2D integer array containing well labels.
+
+    Returns:
+        list: A list of tuples, where each tuple contains (well_id, (center_x, center_y)).
+              center_x and center_y are floats representing the centroid coordinates.
     """
     well_ids = np.unique(wells_2d)
     well_ids = well_ids[well_ids != 0]
@@ -18,7 +25,18 @@ def get_well_centers(wells_2d):
 
 def sort_wells_grid(well_centers):
     """
-    Sort well centers into a 2x3 grid and return a map of {bin_idx: well_id}.
+    Sort well centers into a 2x3 grid and return a map of bin index to well ID.
+
+    Assumes a standard 6-well plate layout (2 rows x 3 columns).
+
+    Args:
+        well_centers (list): List of tuples (well_id, (center_x, center_y)) as returned by get_well_centers.
+
+    Returns:
+        dict: A dictionary mapping bin index (0-5) to well ID. 
+              Indices map to grid positions:
+              0: (0,0), 1: (0,1), 2: (0,2)
+              3: (1,0), 4: (1,1), 5: (1,2)
     """
     if not well_centers:
         return {}
@@ -56,8 +74,17 @@ def sort_wells_grid(well_centers):
 
 def calculate_well_stats(wells_2d, plaque_2d, ordered_wells):
     """
-    Calculate plaque counts and average areas for each well in the grid.
-    Returns lists of length 6.
+    Calculate plaque counts and average plaque areas for each well in the grid.
+
+    Args:
+        wells_2d (numpy.ndarray): 2D integer array containing well labels.
+        plaque_2d (numpy.ndarray): 2D integer array containing plaque labels.
+        ordered_wells (dict): Dictionary mapping bin index (0-5) to well ID.
+
+    Returns:
+        tuple: A tuple containing two lists of length 6:
+            - plaque_counts (list): Count of unique plaques within each well bin.
+            - avg_areas (list): Average area (in pixels) of plaques within each well bin.
     """
     plaque_counts = [0] * 6
     avg_areas = [0.0] * 6
@@ -80,7 +107,14 @@ def calculate_well_stats(wells_2d, plaque_2d, ordered_wells):
 
 def calculate_well_diameters(wells_2d, well_centers):
     """
-    Calculate the average well diameter in pixels.
+    Calculate the average well diameter in pixels based on the furthest points from the centroid.
+
+    Args:
+        wells_2d (numpy.ndarray): 2D integer array containing well labels.
+        well_centers (list): List of tuples (well_id, (center_x, center_y)).
+
+    Returns:
+        float: The average diameter of the wells in pixels. Returns 0.0 if no wells provided.
     """
     well_diameters = []
     for wid, (cx, cy) in well_centers:

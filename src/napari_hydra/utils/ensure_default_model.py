@@ -6,6 +6,19 @@ import shutil
 from napari.utils.notifications import show_info
 
 def ensure_default_model(dest_dir, zip_url):
+    """
+    Ensure that a default model exists in the destination directory.
+    
+    If no models are found in `dest_dir`, it attempts to download a default model
+    from the specified `zip_url` and extract it.
+
+    Args:
+        dest_dir (str): Directory where models should be located.
+        zip_url (str): URL to the default model zip file.
+
+    Returns:
+        list: A list of subdirectory names (models) found in `dest_dir` after the operation.
+    """
     # Check for any directory in models folder
     dirs = [name for name in os.listdir(dest_dir) if os.path.isdir(os.path.join(dest_dir, name))]
     if dirs:

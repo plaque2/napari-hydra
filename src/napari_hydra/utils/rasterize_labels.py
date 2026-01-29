@@ -3,6 +3,19 @@ import numpy as np
 from skimage.draw import polygon
 
 def rasterize_labels(label_dict, out_shape):
+    """
+    Convert polygon coordinates from StarDist prediction into a rasterized label array.
+
+    Args:
+        label_dict (dict): Dictionary containing prediction results, specifically 'coord'.
+                           'coord' is a list of coordinates (arrays of [x, y]).
+        out_shape (tuple): Shape of the output array (height, width).
+
+    Returns:
+        tuple: A tuple containing two elements:
+            - labels_arr (numpy.ndarray): Rasterized integer label mask.
+            - poly_coords (list): List of polygon coordinates (list of [x, y] pairs).
+    """
     unmatched_coords = label_dict["coord"]
     poly_coords = []
     for coord in unmatched_coords:

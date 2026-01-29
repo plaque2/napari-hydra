@@ -1,6 +1,19 @@
 def write_prediction_summary(save_path, well_diameter_mm, px_per_mm, counts_per_frame, avg_areas_per_frame):
     """
     Write the prediction summary to a text file.
+
+    Format includes header, settings (diameter, scale), and a per-frame table
+    of plaque counts and average areas for each well.
+
+    Args:
+        save_path (str): File path to save the summary to.
+        well_diameter_mm (float): Assumed well diameter in millimeters.
+        px_per_mm (float): Calculated pixel-to-millimeter scale factor.
+        counts_per_frame (list): List of lists, where each inner list contains plaque counts for the 6 wells.
+        avg_areas_per_frame (list): List of lists, where each inner list contains average plaque areas (in mm^2).
+
+    Returns:
+        None
     """
     with open(save_path, "w") as f:
         f.write(f"PREDICTION SUMMARY\n")

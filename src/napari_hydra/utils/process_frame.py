@@ -6,6 +6,25 @@ from stardist.geometry import star_dist
 from .make_divisible import make_divisible
 
 def process_frame(img2d, wells2d, plaque2d, target_width, target_height, config):
+    """
+    Process a single frame for training, resizing and generating StarDist targets.
+
+    Args:
+        img2d (numpy.ndarray): Input 2D image (or 2D + channels).
+        wells2d (numpy.ndarray): 2D well labels.
+        plaque2d (numpy.ndarray): 2D plaque labels.
+        target_width (int): Target width for resizing.
+        target_height (int): Target height for resizing.
+        config (object): StarDist configuration object containing grid and n_rays.
+
+    Returns:
+        tuple: A tuple containing five elements:
+            - X (numpy.ndarray): Normalized and resized image with channel dimension.
+            - dist1 (numpy.ndarray): StarDist distances for wells.
+            - prob1 (numpy.ndarray): StarDist probabilities for wells.
+            - dist2 (numpy.ndarray): StarDist distances for plaques.
+            - prob2 (numpy.ndarray): StarDist probabilities for plaques.
+    """
     # Resize frame and labels
     h, w = img2d.shape[:2]
     scale = min(w / target_width, h / target_height)

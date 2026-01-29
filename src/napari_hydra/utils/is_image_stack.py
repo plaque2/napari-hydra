@@ -1,15 +1,15 @@
 def is_image_stack(image):
     """
     Determine if an image array is a stack of frames or a single image.
-    
-    Heuristic: spatial dimensions (height, width) are consecutive and each >= 50 px.
-    Channels are 1-50. Frame count can be 1-N. Find which dimension is likely frames.
-    
+
+    This function uses heuristics based on spatial dimensions (height, width) generally being large (>= 50 px)
+    and channel/frame dimensions being small (<= 50 px) to distinguish single images from stacks.
+
     Args:
-        image: numpy array of shape (ndim varies)
-    
+        image (numpy.ndarray): Input image array of varying dimensionality (2D, 3D, or 4D).
+
     Returns:
-        bool: True if image is a stack, False if it's a single image.
+        bool: True if the image is detected as a stack of frames, False if it is a single image.
     """
     if image.ndim == 2:
         # (height, width) - single 2D image

@@ -3,7 +3,24 @@ from .process_frame import process_frame
 
 def prepare_training_batches(image, wells, plaque, is_stack, target_width, target_height, config):
     """
-    Prepare batches for fine-tuning the model.
+    Prepare batches for fine-tuning the model from image and label data.
+
+    Processes single images or stacks, resizing and normalizing them, and generating
+    targets (distances and probabilities) for the StarDist model.
+
+    Args:
+        image (numpy.ndarray): Training image data (single frame or stack).
+        wells (numpy.ndarray): Ground truth well labels.
+        plaque (numpy.ndarray): Ground truth plaque labels.
+        is_stack (bool): Flag indicating if the input data represents a stack of frames.
+        target_width (int): Target width for resizing images.
+        target_height (int): Target height for resizing images.
+        config (object): StarDist configuration object containing grid and n_rays.
+
+    Returns:
+        tuple: A tuple containing two elements:
+            - X_train (numpy.ndarray): Training images array suitable for Keras model input.
+            - Y_train (dict): Dictionary of training targets with keys 'dist1', 'prob1', 'dist2', 'prob2'.
     """
     if is_stack:
         n_frames = image.shape[0]
