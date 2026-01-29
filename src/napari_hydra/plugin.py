@@ -20,7 +20,7 @@ from csbdeep.utils import normalize
 from stardist.utils import edt_prob
 from stardist.geometry import star_dist
 from napari_hydra.hydrastardist.models.model2d_hydra import Config2D, StarDist2D
-from napari_hydra.utils import rasterize_labels, ensure_default_model, is_image_stack, process_frame, get_well_centers, sort_wells_grid, calculate_well_stats, calculate_well_diameters, create_hydra_colormaps, get_or_create_layer
+from napari_hydra.utils import rasterize_labels, ensure_default_model, is_image_stack, process_frame, get_well_centers, sort_wells_grid, calculate_well_stats, calculate_well_diameters, create_hydra_colormaps, get_or_create_layer, prepare_training_batches, write_prediction_summary
 
 import tensorflow as tf
 
@@ -33,6 +33,10 @@ class HydraStarDistPlugin(QWidget):
     """
     # Default model ZIP to download when no local models are present
     ZIP_URL = "https://rodare.hzdr.de/record/4439/files/model_vacvplaque_hsd.zip?download=1"
+    
+    # Constants
+    WELL_DIAMETER_MM = 35
+
     def __init__(self, viewer: napari.Viewer = None):
         """
         Initialized the plugin:
@@ -526,7 +530,7 @@ class HydraStarDistPlugin(QWidget):
         self.plaques_prob_spin.setValue(self.model.thresholds2['prob'])
         self.plaques_overlap_spin.setValue(self.model.thresholds2['nms'])
 
-    def _get_well_info(self, wells_data, plaque_data, well_diameter_mm=35):
+    def _get_well_info(self, wells_data, plaque_data, well_diameter_mm=None):
         """
         Helper to extract well binning, plaque counts, average areas, and well diameters from label arrays.
         Returns:
@@ -535,6 +539,8 @@ class HydraStarDistPlugin(QWidget):
             avg_well_diameter_px: average well diameter in pixels
             px_per_cm: pixel-to-cm scale (using 3.5 cm well diameter)
         """
+        if well_diameter_mm is None:
+            well_diameter_mm = self.WELL_DIAMETER_MM
         # Convert Dask arrays to numpy if needed
         if isinstance(wells_data, da.Array):
             wells_data = wells_data.compute()
@@ -762,18 +768,18 @@ class HydraStarDistPlugin(QWidget):
             plaque_data = plaque_data.compute()
 
         # Handle stacks
+        well_diameter_mm = self.WELL_DIAMETER_MM
         if wells_data.ndim == 3:  # stack: [frames, h, w]
             n_frames = wells_data.shape[0]
             counts_per_frame = []
             avg_areas_per_frame = []
-            well_diameter_mm = 35
             for z in range(n_frames):
                 counts, avg_areas, _, px_per_mm = self._get_well_info(wells_data[z], plaque_data[z], well_diameter_mm=well_diameter_mm)
                 counts_per_frame.append(counts)
                 avg_areas_mm2 = [area / px_per_mm**2 if px_per_mm > 0 else 0.0 for area in avg_areas]
                 avg_areas_per_frame.append(avg_areas_mm2)
         else:  # single image
-            counts, avg_areas, _, px_per_mm = self._get_well_info(wells_data, plaque_data)
+            counts, avg_areas, _, px_per_mm = self._get_well_info(wells_data, plaque_data, well_diameter_mm=well_diameter_mm)
             counts_per_frame = [counts]
             avg_areas_mm2 = [area / px_per_mm**2 if px_per_mm > 0 else 0.0 for area in avg_areas]
             avg_areas_per_frame = [avg_areas_mm2]
@@ -786,20 +792,7 @@ class HydraStarDistPlugin(QWidget):
             return
 
         try:
-            with open(save_path, "w") as f:
-                f.write(f"PREDICTION SUMMARY\n")
-                f.write("="*40 + "\n")
-                f.write(f"Assumed Well Diameter: {well_diameter_mm} mm\n")
-                f.write(f"Pixel-to-mm Scale: {px_per_mm:.2f} px/mm\n")
-
-                for frame_idx, (counts, avg_areas) in enumerate(zip(counts_per_frame, avg_areas_per_frame)):
-                    f.write(f"\nFRAME {frame_idx + 1}\n")
-                    f.write("Plaque Count per Well      Average Plaque Area (mm²)\n")
-                    f.write("-------------------        ----------------------------\n")
-                    f.write("| {:03d} | {:03d} | {:03d} |        | {:06.2f} | {:06.2f} | {:06.2f} |\n".format(*counts[:3], *avg_areas[:3]))
-                    f.write("-------------------        ----------------------------\n")
-                    f.write("| {:03d} | {:03d} | {:03d} |        | {:06.2f} | {:06.2f} | {:06.2f} |\n".format(*counts[3:], *avg_areas[3:]))
-                    f.write("-------------------        ----------------------------\n")
+            write_prediction_summary(save_path, well_diameter_mm, px_per_mm, counts_per_frame, avg_areas_per_frame)
             QMessageBox.information(self, "Export Prediction", f"Prediction summary exported to:\n{save_path}")
         except Exception as e:
             QMessageBox.critical(self, "Export Prediction", f"Failed to export summary:\n{e}")
@@ -868,55 +861,13 @@ class HydraStarDistPlugin(QWidget):
         target_height = int(self.target_height_spin.value())
 
         # Prepare batches
-        if is_stack:
-            n_frames = image.shape[0]
-            # If image has more than 3 dims, select first channel if needed
-            Xs, dist1s, prob1s, dist2s, prob2s = [], [], [], [], []
-            for z in range(n_frames):
-                # Handle 4D (t,z,y,x) or (z,y,x,c) etc
-                img2d = image[z]
-                wells2d = wells[z]
-                plaque2d = plaque[z]
-                X, dist1, prob1, dist2, prob2 = process_frame(
-                    img2d, wells2d, plaque2d, 
-                    target_width, target_height, config
-                )
-                Xs.append(X)
-                dist1s.append(dist1)
-                prob1s.append(prob1)
-                dist2s.append(dist2)
-                prob2s.append(prob2)
-            X_train = np.stack(Xs, axis=0)
-            Y_train = {
-                'dist1': np.stack(dist1s, axis=0),
-                'prob1': np.stack(prob1s, axis=0),
-                'dist2': np.stack(dist2s, axis=0),
-                'prob2': np.stack(prob2s, axis=0),
-            }
-        else:
-            if image.ndim == 3 and image.shape[-1] in (1, 3):
-                img2d = image
-                wells2d = wells
-                plaque2d = plaque
-            elif image.ndim == 2:
-                img2d = image
-                wells2d = wells
-                plaque2d = plaque
-            else:
-                # If image is 3D with shape (1, h, w) or similar, squeeze
-                img2d = np.squeeze(image)
-                wells2d = np.squeeze(wells)
-                plaque2d = np.squeeze(plaque)
-            X, dist1, prob1, dist2, prob2 = process_frame(img2d, wells2d, plaque2d)
-            X_train = np.expand_dims(X, 0)
-            Y_train = {
-                'dist1': np.expand_dims(dist1, 0),
-                'prob1': np.expand_dims(prob1, 0),
-                'dist2': np.expand_dims(dist2, 0),
-                'prob2': np.expand_dims(prob2, 0),
-            }
+        X_train, Y_train = prepare_training_batches(
+            image, wells, plaque, is_stack, 
+            target_width, target_height, config
+        )
 
         # Get training parameters from UI
+        n_frames = image.shape[0]
         batch_size = min(int(self.batch_spin.value()), n_frames) if is_stack else 1
         epochs = int(self.epochs_spin.value())
         learning_rate = float(self.lr_spin.value())
@@ -929,6 +880,8 @@ class HydraStarDistPlugin(QWidget):
         self.model.keras_model.save_weights(os.path.join(model_basedir, selected_model, "weights_best.h5"))
         self.model.keras_model.load_weights(os.path.join(model_basedir, selected_model, "weights_best.h5"))
         show_info("Model tuned!")
+        self.run_prediction()
+        show_info("Prediction updated!")
 
 def napari_experimental_provide_dock_widget():
     """This function makes the widget discoverable by napari as a plugin dock widget"""
