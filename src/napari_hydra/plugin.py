@@ -20,6 +20,7 @@ from csbdeep.utils import normalize
 from stardist.utils import edt_prob
 from stardist.geometry import star_dist
 from napari_hydra.hydrastardist.models.model2d_hydra import Config2D, StarDist2D
+from napari_hydra.utils import rasterize_labels, ensure_default_model, is_image_stack, process_frame, get_well_centers, sort_wells_grid, calculate_well_stats, calculate_well_diameters, create_hydra_colormaps, get_or_create_layer, prepare_training_batches, write_prediction_summary
 
 import tensorflow as tf
 
@@ -32,6 +33,10 @@ class HydraStarDistPlugin(QWidget):
     """
     # Default model ZIP to download when no local models are present
     ZIP_URL = "https://rodare.hzdr.de/record/4439/files/model_vacvplaque_hsd.zip?download=1"
+    
+    # Constants
+    WELL_DIAMETER_MM = 35
+
     def __init__(self, viewer: napari.Viewer = None):
         """
         Initialized the plugin:
@@ -110,46 +115,7 @@ class HydraStarDistPlugin(QWidget):
         os.makedirs(model_basedir, exist_ok=True)
 
         # If no model subfolders are present, attempt to download the default model zip
-        def _ensure_default_model(dest_dir):
-            # Check for any directory in models folder
-            dirs = [name for name in os.listdir(dest_dir) if os.path.isdir(os.path.join(dest_dir, name))]
-            if dirs:
-                return dirs
-
-            zip_url = HydraStarDistPlugin.ZIP_URL
-            # Download into a temp file then extract
-            try:
-                show_info("No models found locally — attempting to download default model (this may take a while)...")
-            except Exception:
-                pass
-
-            try:
-                fd, tmp_path = tempfile.mkstemp(suffix=".zip")
-                os.close(fd)
-                # download
-                urllib.request.urlretrieve(zip_url, tmp_path)
-                # extract
-                try:
-                    with zipfile.ZipFile(tmp_path, 'r') as zf:
-                        zf.extractall(dest_dir)
-                except zipfile.BadZipFile:
-                    # fallback to shutil.unpack_archive which may handle other formats
-                    shutil.unpack_archive(tmp_path, dest_dir)
-                finally:
-                    try:
-                        os.remove(tmp_path)
-                    except Exception:
-                        pass
-            except Exception as e:
-                try:
-                    show_info(f"Failed to download default model: {e}")
-                except Exception:
-                    pass
-
-            # return any directories found after attempted download
-            return [name for name in os.listdir(dest_dir) if os.path.isdir(os.path.join(dest_dir, name))]
-
-        self.model_names = _ensure_default_model(model_basedir)
+        self.model_names = ensure_default_model(model_basedir, HydraStarDistPlugin.ZIP_URL)
         self.model_combo.addItems(self.model_names)
 
         if "VACV-Plaque" in self.model_names:
@@ -158,6 +124,15 @@ class HydraStarDistPlugin(QWidget):
         selection_grid.addWidget(self.model_combo, 1, 1)
         layout.addLayout(selection_grid)
         layout.addSpacing(5)
+
+        if not self.model_names:
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Critical)
+            msg.setText("Default model download failed.")
+            msg.setInformativeText("Please check your internet connection and try again.")
+            msg.setWindowTitle("Download Error")
+            msg.exec_()
+            return
 
         # LOAD HYDRASTARDIST MODEL
         # searches for model and loads "VACV-Plaque" as default
@@ -555,7 +530,7 @@ class HydraStarDistPlugin(QWidget):
         self.plaques_prob_spin.setValue(self.model.thresholds2['prob'])
         self.plaques_overlap_spin.setValue(self.model.thresholds2['nms'])
 
-    def _get_well_info(self, wells_data, plaque_data, well_diameter_mm=35):
+    def _get_well_info(self, wells_data, plaque_data, well_diameter_mm=None):
         """
         Helper to extract well binning, plaque counts, average areas, and well diameters from label arrays.
         Returns:
@@ -564,6 +539,8 @@ class HydraStarDistPlugin(QWidget):
             avg_well_diameter_px: average well diameter in pixels
             px_per_cm: pixel-to-cm scale (using 3.5 cm well diameter)
         """
+        if well_diameter_mm is None:
+            well_diameter_mm = self.WELL_DIAMETER_MM
         # Convert Dask arrays to numpy if needed
         if isinstance(wells_data, da.Array):
             wells_data = wells_data.compute()
@@ -582,75 +559,21 @@ class HydraStarDistPlugin(QWidget):
         else:
             wells_2d = wells_data
             plaque_2d = plaque_data
+        
         # Get unique well ids and their centers
-        well_ids = np.unique(wells_2d)
-        well_ids = well_ids[well_ids != 0]
-        well_centers = []
-        for wid in well_ids:
-            ys, xs = np.where(wells_2d == wid)
-            if len(xs) == 0 or len(ys) == 0:
-                continue
-            center_x = np.mean(xs)
-            center_y = np.mean(ys)
-            well_centers.append((wid, (center_x, center_y)))
+        well_centers = get_well_centers(wells_2d)
         if not well_centers:
             return [0]*6, [0.0]*6, 0.0, 0.0
-        # If more than 6 wells, select 6 closest to centroid
-        if len(well_centers) > 6:
-            centroid_x = np.mean([cx for _, (cx, cy) in well_centers])
-            centroid_y = np.mean([cy for _, (cx, cy) in well_centers])
-            well_centers = sorted(
-                well_centers,
-                key=lambda item: np.sqrt((item[1][0] - centroid_x)**2 + (item[1][1] - centroid_y)**2)
-            )[:6]
-        min_x, max_x = min(cx for _, (cx, _) in well_centers), max(cx for _, (cx, _) in well_centers)
-        x_dist = max_x - min_x
-        min_y, max_y = min(cy for _, (_, cy) in well_centers), max(cy for _, (_, cy) in well_centers)
-        y_dist = max_y - min_y
-        ordered_wells = {}
-        for wid, (cx, cy) in well_centers:
-            x_d = (cx - min_x) / x_dist if x_dist > 0 else 0
-            if x_d < 0.25:
-                x_i = 0
-            elif x_d < 0.75:
-                x_i = 1
-            else:
-                x_i = 2
-            y_d = (cy - min_y) / y_dist if y_dist > 0 else 0
-            if y_d < 0.5:
-                y_i = 0
-            else:
-                y_i = 1
-            bin_idx = x_i + 3 * y_i
-            ordered_wells[bin_idx] = wid
-        # For each well, count plaques and compute average area
-        plaque_counts = [0] * 6
-        avg_areas = [0.0] * 6
-        for bin_idx in range(6):
-            wid = ordered_wells.get(bin_idx, None)
-            if wid is None:
-                continue
-            mask_well = (wells_2d == wid)
-            plaque_labels_in_well = plaque_2d[mask_well]
-            unique_plaques = np.unique(plaque_labels_in_well)
-            unique_plaques = unique_plaques[unique_plaques != 0]
-            plaque_counts[bin_idx] = len(unique_plaques)
-            # For each plaque, compute area (number of pixels in well AND plaque)
-            areas = []
-            for pid in unique_plaques:
-                area = np.sum((plaque_2d == pid) & mask_well)
-                areas.append(area)
-            avg_areas[bin_idx] = np.mean(areas) if areas else 0.0
+
+        # Sort wells into grid
+        ordered_wells = sort_wells_grid(well_centers)
+
+        # Calculate stats
+        plaque_counts, avg_areas = calculate_well_stats(wells_2d, plaque_2d, ordered_wells)
+
         # Compute average well diameter in pixels
-        well_diameters = []
-        for wid, (cx, cy) in well_centers:
-            yx = np.column_stack(np.where(wells_2d == wid))
-            if yx.shape[0] == 0:
-                continue
-            dists = np.sqrt((yx[:, 1] - cx)**2 + (yx[:, 0] - cy)**2)
-            diameter = 2 * np.max(dists)
-            well_diameters.append(diameter)
-        avg_well_diameter_px = np.mean(well_diameters) if well_diameters else 0.0
+        avg_well_diameter_px = calculate_well_diameters(wells_2d, well_centers)
+
         px_per_cm = avg_well_diameter_px / well_diameter_mm if well_diameter_mm > 0 else 0.0
         return plaque_counts, avg_areas, avg_well_diameter_px, px_per_cm
 
@@ -680,80 +603,36 @@ class HydraStarDistPlugin(QWidget):
                 pass
             self.viewer.dims.events.current_step.connect(self.count_plaque)
 
-    def _is_image_stack(self, image):
-        """
-        Determine if an image array is a stack of frames or a single image.
-        
-        Heuristic: spatial dimensions (height, width) are consecutive and each >= 50 px.
-        Channels are 1-50. Frame count can be 1-N. Find which dimension is likely frames.
-        
-        Args:
-            image: numpy array of shape (ndim varies)
-        
-        Returns:
-            bool: True if image is a stack, False if it's a single image.
-        """
-        if image.ndim == 2:
-            # (height, width) - single 2D image
-            return False
-        elif image.ndim == 3:
-            # Could be (h, w, c), (n_frames, h, w), or other
-            dims = image.shape
-            
-            # Check if dims[0] and dims[1] are consecutive spatial dims (both >= 50)
-            if dims[0] >= 50 and dims[1] >= 50:
-                # dims[2] is likely channels (1-50) or frames (1-N)
-                if dims[2] <= 50:
-                    # Likely (h, w, c) - single image with channels
-                    return False
-                else:
-                    # dims[2] > 50, likely (h, w, frames) - stack without channels
-                    return True
-            # Check if dims[1] and dims[2] are consecutive spatial dims (both >= 50)
-            elif dims[1] >= 50 and dims[2] >= 50:
-                # dims[0] is likely frames or channels
-                if dims[0] <= 50:
-                    # Likely (frames/channels, h, w)
-                    if dims[0] == 1:
-                        return False  # Single frame
-                    else:
-                        return True   # Multiple frames
-                else:
-                    # All three dims >= 50, ambiguous - assume (h, w, c)
-                    return False
-            # Check if dims[0] and dims[2] are >= 50 (less likely but possible)
-            elif dims[0] >= 50 and dims[2] >= 50:
-                # dims[1] is small, likely channels
-                if dims[1] <= 50:
-                    # Likely (h, c, w) or permutation - assume single image
-                    return False
-                else:
-                    return False
-            else:
-                # No clear spatial dims >= 50, assume single image
-                return False
-        elif image.ndim == 4:
-            # Could be (n_frames, h, w, c) or (h, w, c, frames) or other
-            dims = image.shape
-            # Look for two consecutive dims >= 50 (spatial)
-            for i in range(len(dims) - 1):
-                if dims[i] >= 50 and dims[i+1] >= 50:
-                    # Found spatial dims at positions i and i+1
-                    # Check remaining dims: one should be frames, one should be channels
-                    other_dims = [dims[j] for j in range(4) if j != i and j != i+1]
-                    # If both other dims are small (<=50), likely frames and channels
-                    if all(d <= 50 for d in other_dims):
-                        # At least one should be > 1 to indicate multiple frames
-                        if max(other_dims) > 1:
-                            return True
-                        else:
-                            return False
-                    return False
-            # No consecutive spatial dims found
-            return False
+
+
+    def predict_single(self, img2d):
+        target_width = int(self.target_width_spin.value())
+        target_height = int(self.target_height_spin.value())
+        h0, w0 = img2d.shape[:2]
+        scale = min(w0 / target_width, h0 / target_height)
+        new_w = int(w0 / scale)
+        new_h = int(h0 / scale)
+        y_indices = np.linspace(0, h0 - 1, new_h).astype(int)
+        x_indices = np.linspace(0, w0 - 1, new_w).astype(int)
+        if img2d.ndim == 3:
+            resized = img2d[y_indices[:, None], x_indices[None, :], :]
         else:
-            # image.ndim > 4: assume stack (high-dimensional data)
-            return True
+            resized = img2d[y_indices[:, None], x_indices[None, :]]
+        img = img_as_float32(resized)
+        axis_norm = (0, 1)
+        img = normalize(img, 1, 99.8, axis=axis_norm)
+        labels1, labels2 = self.model.predict_instances(
+            img,
+            prob_thresh1=self.wells_prob_spin.value(),
+            prob_thresh2=self.plaques_prob_spin.value(),
+            nms_thresh1=self.wells_overlap_spin.value(),
+            nms_thresh2=self.plaques_overlap_spin.value()
+        )
+        labels1[1]['coord'] = [((coord[0] * scale).astype(int), (coord[1] * scale).astype(int)) for coord in labels1[1]['coord']]
+        labels2[1]['coord'] = [((coord[0] * scale).astype(int), (coord[1] * scale).astype(int)) for coord in labels2[1]['coord']]
+        labels1[1]['points'] = [((pt[0] * scale).astype(int), (pt[1] * scale).astype(int)) for pt in labels1[1]['points']]
+        labels2[1]['points'] = [((pt[0] * scale).astype(int), (pt[1] * scale).astype(int)) for pt in labels2[1]['points']]
+        return labels1[1], labels2[1]
 
     def run_prediction(self):
         selected_name = self.image_layer_combo.currentText()
@@ -781,62 +660,9 @@ class HydraStarDistPlugin(QWidget):
         # Get UI resize targets
         target_width = int(self.target_width_spin.value())
         target_height = int(self.target_height_spin.value())
-
-        # Helper for prediction on one frame
-        def predict_single(img2d):
-            h0, w0 = img2d.shape[:2]
-            scale = min(w0 / target_width, h0 / target_height)
-            new_w = int(w0 / scale)
-            new_h = int(h0 / scale)
-            y_indices = np.linspace(0, h0 - 1, new_h).astype(int)
-            x_indices = np.linspace(0, w0 - 1, new_w).astype(int)
-            if img2d.ndim == 3:
-                resized = img2d[y_indices[:, None], x_indices[None, :], :]
-            else:
-                resized = img2d[y_indices[:, None], x_indices[None, :]]
-            img = img_as_float32(resized)
-            axis_norm = (0, 1)
-            img = normalize(img, 1, 99.8, axis=axis_norm)
-            labels1, labels2 = self.model.predict_instances(
-                img,
-                prob_thresh1=self.wells_prob_spin.value(),
-                prob_thresh2=self.plaques_prob_spin.value(),
-                nms_thresh1=self.wells_overlap_spin.value(),
-                nms_thresh2=self.plaques_overlap_spin.value()
-            )
-            labels1[1]['coord'] = [((coord[0] * scale).astype(int), (coord[1] * scale).astype(int)) for coord in labels1[1]['coord']]
-            labels2[1]['coord'] = [((coord[0] * scale).astype(int), (coord[1] * scale).astype(int)) for coord in labels2[1]['coord']]
-            labels1[1]['points'] = [((pt[0] * scale).astype(int), (pt[1] * scale).astype(int)) for pt in labels1[1]['points']]
-            labels2[1]['points'] = [((pt[0] * scale).astype(int), (pt[1] * scale).astype(int)) for pt in labels2[1]['points']]
-            return labels1[1], labels2[1]
-
-        # Helper to get polygons and rasterize
-        def rasterize_labels(label_dict, out_shape):
-            unmatched_coords = label_dict["coord"]
-            poly_coords = []
-            for coord in unmatched_coords:
-                X = coord[0]
-                Y = coord[1]
-                single_polygon = [[X[i], Y[i]] for i in range(len(X))]
-                poly_coords.append(single_polygon)
-            labels_arr = np.zeros(out_shape, dtype=np.int32)
-            def scale_poly(poly):
-                poly = np.array(poly)
-                return poly
-            for label, poly in enumerate(poly_coords):
-                poly_scaled = scale_poly(poly)
-                rr, cc = polygon(poly_scaled[:, 0], poly_scaled[:, 1], shape=labels_arr.shape)
-                labels_arr[rr, cc] = label + 1
-            return labels_arr, poly_coords
-
+        
         # Prepare colormaps
-        color_dict = {0: (0, 0, 0, 0)}
-        color_dict[None] = (1, 1, 1, 1)
-        white_cmap = DirectLabelColormap(color_dict=color_dict)
-
-        color_dict_blue = {0: (0, 0, 0, 0)}
-        color_dict_blue[None] = (0, 194/255, 1, 1)
-        blue_cmap = DirectLabelColormap(color_dict=color_dict_blue)
+        white_cmap, blue_cmap = create_hydra_colormaps()
 
         wells_layer_name = f"{selected_name} Wells"
         plaque_layer_name = f"{selected_name} Plaque"
@@ -848,21 +674,15 @@ class HydraStarDistPlugin(QWidget):
             # Create empty arrays to accumulate labels
             wells_labels_stack = np.zeros((n_frames, h, w), dtype=np.int32)
             plaque_labels_stack = np.zeros((n_frames, h, w), dtype=np.int32)
-            # Add layers if not present
-            if wells_layer_name in self.viewer.layers:
-                wells_layer = self.viewer.layers[wells_layer_name]
-            else:
-                wells_layer = self.viewer.add_labels(
-                    wells_labels_stack[:1], name=wells_layer_name,
-                    blending="multiplicative", colormap=white_cmap
-                )
-            if plaque_layer_name in self.viewer.layers:
-                plaque_layer = self.viewer.layers[plaque_layer_name]
-            else:
-                plaque_layer = self.viewer.add_labels(
-                    plaque_labels_stack[:1], name=plaque_layer_name,
-                    blending="additive", colormap=blue_cmap
-                )
+            
+            # Add/Get layers
+            wells_layer = get_or_create_layer(
+                self.viewer, wells_layer_name, wells_labels_stack[:1], white_cmap, "multiplicative"
+            )
+            plaque_layer = get_or_create_layer(
+                self.viewer, plaque_layer_name, plaque_labels_stack[:1], blue_cmap, "additive"
+            )
+
             # Set colormap (in case layer existed)
             wells_layer.colormap = white_cmap
             plaque_layer.colormap = blue_cmap
@@ -875,7 +695,7 @@ class HydraStarDistPlugin(QWidget):
                     this_img = image[z]
                 if isinstance(this_img, da.Array):
                     this_img = this_img.compute()
-                well_labels, plaque_labels = predict_single(this_img)
+                well_labels, plaque_labels = self.predict_single(this_img)
                 if z == 0:
                     self.well_labels = well_labels
                     self.plaque_labels = plaque_labels
@@ -900,28 +720,20 @@ class HydraStarDistPlugin(QWidget):
                     self.viewer.dims.set_current_step(z_axis, n_frames - 1)
         else:
             h, w = image.shape[:2]
-            well_labels, plaque_labels = predict_single(image)
+            well_labels, plaque_labels = self.predict_single(image)
             self.well_labels = well_labels
             self.plaque_labels = plaque_labels
             wells_labels_arr, _ = rasterize_labels(well_labels, (h, w))
             plaque_labels_arr, _ = rasterize_labels(plaque_labels, (h, w))
-            # Add/update layers
-            if wells_layer_name in self.viewer.layers:
-                wells_layer = self.viewer.layers[wells_layer_name]
-                wells_layer.data = wells_labels_arr
-            else:
-                wells_layer = self.viewer.add_labels(
-                    wells_labels_arr, name=wells_layer_name,
-                    blending="multiplicative", colormap=white_cmap
-                )
-            if plaque_layer_name in self.viewer.layers:
-                plaque_layer = self.viewer.layers[plaque_layer_name]
-                plaque_layer.data = plaque_labels_arr
-            else:
-                plaque_layer = self.viewer.add_labels(
-                    plaque_labels_arr, name=plaque_layer_name,
-                    blending="additive", colormap=blue_cmap
-                )
+            
+            # Add/Get layers
+            wells_layer = get_or_create_layer(
+                self.viewer, wells_layer_name, wells_labels_arr, white_cmap, "multiplicative"
+            )
+            plaque_layer = get_or_create_layer(
+                self.viewer, plaque_layer_name, plaque_labels_arr, blue_cmap, "additive"
+            )
+
             wells_layer.colormap = white_cmap
             plaque_layer.colormap = blue_cmap
             plaque_layer.contour = 2
@@ -956,18 +768,18 @@ class HydraStarDistPlugin(QWidget):
             plaque_data = plaque_data.compute()
 
         # Handle stacks
+        well_diameter_mm = self.WELL_DIAMETER_MM
         if wells_data.ndim == 3:  # stack: [frames, h, w]
             n_frames = wells_data.shape[0]
             counts_per_frame = []
             avg_areas_per_frame = []
-            well_diameter_mm = 35
             for z in range(n_frames):
                 counts, avg_areas, _, px_per_mm = self._get_well_info(wells_data[z], plaque_data[z], well_diameter_mm=well_diameter_mm)
                 counts_per_frame.append(counts)
                 avg_areas_mm2 = [area / px_per_mm**2 if px_per_mm > 0 else 0.0 for area in avg_areas]
                 avg_areas_per_frame.append(avg_areas_mm2)
         else:  # single image
-            counts, avg_areas, _, px_per_mm = self._get_well_info(wells_data, plaque_data)
+            counts, avg_areas, _, px_per_mm = self._get_well_info(wells_data, plaque_data, well_diameter_mm=well_diameter_mm)
             counts_per_frame = [counts]
             avg_areas_mm2 = [area / px_per_mm**2 if px_per_mm > 0 else 0.0 for area in avg_areas]
             avg_areas_per_frame = [avg_areas_mm2]
@@ -980,20 +792,7 @@ class HydraStarDistPlugin(QWidget):
             return
 
         try:
-            with open(save_path, "w") as f:
-                f.write(f"PREDICTION SUMMARY\n")
-                f.write("="*40 + "\n")
-                f.write(f"Assumed Well Diameter: {well_diameter_mm} mm\n")
-                f.write(f"Pixel-to-mm Scale: {px_per_mm:.2f} px/mm\n")
-
-                for frame_idx, (counts, avg_areas) in enumerate(zip(counts_per_frame, avg_areas_per_frame)):
-                    f.write(f"\nFRAME {frame_idx + 1}\n")
-                    f.write("Plaque Count per Well      Average Plaque Area (mm²)\n")
-                    f.write("-------------------        ----------------------------\n")
-                    f.write("| {:03d} | {:03d} | {:03d} |        | {:06.2f} | {:06.2f} | {:06.2f} |\n".format(*counts[:3], *avg_areas[:3]))
-                    f.write("-------------------        ----------------------------\n")
-                    f.write("| {:03d} | {:03d} | {:03d} |        | {:06.2f} | {:06.2f} | {:06.2f} |\n".format(*counts[3:], *avg_areas[3:]))
-                    f.write("-------------------        ----------------------------\n")
+            write_prediction_summary(save_path, well_diameter_mm, px_per_mm, counts_per_frame, avg_areas_per_frame)
             QMessageBox.information(self, "Export Prediction", f"Prediction summary exported to:\n{save_path}")
         except Exception as e:
             QMessageBox.critical(self, "Export Prediction", f"Failed to export summary:\n{e}")
@@ -1039,7 +838,7 @@ class HydraStarDistPlugin(QWidget):
         plaque = plaque_layer.compute() if isinstance(plaque_layer, da.Array) else plaque_layer
 
         # Determine if input is a stack
-        is_stack = self._is_image_stack(image)
+        is_stack = is_image_stack(image)
         
         # If not a stack, wrap single image into a single-frame stack
         if not is_stack:
@@ -1061,99 +860,14 @@ class HydraStarDistPlugin(QWidget):
         target_width = int(self.target_width_spin.value())
         target_height = int(self.target_height_spin.value())
 
-        def make_divisible(x, divisor=16):
-            return (x // divisor) * divisor
-
-        def process_frame(img2d, wells2d, plaque2d):
-            # Resize frame and labels
-            h, w = img2d.shape[:2]
-            scale = min(w / target_width, h / target_height)
-            new_w, new_h = int(w / scale), int(h / scale)
-            new_w, new_h = make_divisible(new_w), make_divisible(new_h)
-            y_indices = np.linspace(0, h - 1, new_h).astype(int)
-            x_indices = np.linspace(0, w - 1, new_w).astype(int)
-
-            # Resize image
-            if img2d.ndim == 3:
-                resized_img = img2d[y_indices[:, None], x_indices[None, :], :]
-            else:
-                resized_img = img2d[y_indices[:, None], x_indices[None, :]]
-            img = img_as_float32(resized_img)
-            axis_norm = (0, 1)
-            image_norm = normalize(img, 1, 99.8, axis=axis_norm)
-
-            # Resize labels
-            wells_resized = wells2d[y_indices[:, None], x_indices[None, :]]
-            plaque_resized = plaque2d[y_indices[:, None], x_indices[None, :]]
-
-            # Ensure input has channel axis
-            X = image_norm.astype(np.float32)
-            if X.ndim == 2:
-                X = np.expand_dims(X, -1)
-            Y1 = wells_resized.astype(np.int32)
-            Y2 = plaque_resized.astype(np.int32)
-
-            # Prepare targets
-            prob1_full = edt_prob(Y1)
-            prob2_full = edt_prob(Y2)
-
-            y_indices_prob = np.arange(0, prob1_full.shape[0], config.grid[0])
-            x_indices_prob = np.arange(0, prob1_full.shape[1], config.grid[1])
-            prob1 = np.expand_dims(prob1_full[y_indices_prob[:, None], x_indices_prob[None, :]], -1)
-            prob2 = np.expand_dims(prob2_full[y_indices_prob[:, None], x_indices_prob[None, :]], -1)
-
-            dist1 = star_dist(Y1, config.n_rays, mode="cpp", grid=config.grid)
-            dist2 = star_dist(Y2, config.n_rays, mode="cpp", grid=config.grid)
-
-            return X, dist1, prob1, dist2, prob2
-
         # Prepare batches
-        if is_stack:
-            n_frames = image.shape[0]
-            # If image has more than 3 dims, select first channel if needed
-            Xs, dist1s, prob1s, dist2s, prob2s = [], [], [], [], []
-            for z in range(n_frames):
-                # Handle 4D (t,z,y,x) or (z,y,x,c) etc
-                img2d = image[z]
-                wells2d = wells[z]
-                plaque2d = plaque[z]
-                X, dist1, prob1, dist2, prob2 = process_frame(img2d, wells2d, plaque2d)
-                Xs.append(X)
-                dist1s.append(dist1)
-                prob1s.append(prob1)
-                dist2s.append(dist2)
-                prob2s.append(prob2)
-            X_train = np.stack(Xs, axis=0)
-            Y_train = {
-                'dist1': np.stack(dist1s, axis=0),
-                'prob1': np.stack(prob1s, axis=0),
-                'dist2': np.stack(dist2s, axis=0),
-                'prob2': np.stack(prob2s, axis=0),
-            }
-        else:
-            if image.ndim == 3 and image.shape[-1] in (1, 3):
-                img2d = image
-                wells2d = wells
-                plaque2d = plaque
-            elif image.ndim == 2:
-                img2d = image
-                wells2d = wells
-                plaque2d = plaque
-            else:
-                # If image is 3D with shape (1, h, w) or similar, squeeze
-                img2d = np.squeeze(image)
-                wells2d = np.squeeze(wells)
-                plaque2d = np.squeeze(plaque)
-            X, dist1, prob1, dist2, prob2 = process_frame(img2d, wells2d, plaque2d)
-            X_train = np.expand_dims(X, 0)
-            Y_train = {
-                'dist1': np.expand_dims(dist1, 0),
-                'prob1': np.expand_dims(prob1, 0),
-                'dist2': np.expand_dims(dist2, 0),
-                'prob2': np.expand_dims(prob2, 0),
-            }
+        X_train, Y_train = prepare_training_batches(
+            image, wells, plaque, is_stack, 
+            target_width, target_height, config
+        )
 
         # Get training parameters from UI
+        n_frames = image.shape[0]
         batch_size = min(int(self.batch_spin.value()), n_frames) if is_stack else 1
         epochs = int(self.epochs_spin.value())
         learning_rate = float(self.lr_spin.value())
@@ -1166,6 +880,8 @@ class HydraStarDistPlugin(QWidget):
         self.model.keras_model.save_weights(os.path.join(model_basedir, selected_model, "weights_best.h5"))
         self.model.keras_model.load_weights(os.path.join(model_basedir, selected_model, "weights_best.h5"))
         show_info("Model tuned!")
+        self.run_prediction()
+        show_info("Prediction updated!")
 
 def napari_experimental_provide_dock_widget():
     """This function makes the widget discoverable by napari as a plugin dock widget"""
