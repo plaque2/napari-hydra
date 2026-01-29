@@ -13,3 +13,6 @@ resources/models/
 # macOS Finder metadata
 .DS_Store
 __MACOSX/
+
+# pytest cache
+*.pytest_cache*
