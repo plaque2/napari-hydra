@@ -20,7 +20,7 @@ from csbdeep.utils import normalize
 from stardist.utils import edt_prob
 from stardist.geometry import star_dist
 from napari_hydra.hydrastardist.models.model2d_hydra import Config2D, StarDist2D
-from napari_hydra.utils import rasterize_labels, ensure_default_model, is_image_stack, process_frame
+from napari_hydra.utils import rasterize_labels, ensure_default_model, is_image_stack, process_frame, get_well_centers, sort_wells_grid, calculate_well_stats, calculate_well_diameters, create_hydra_colormaps, get_or_create_layer
 
 import tensorflow as tf
 
@@ -553,75 +553,21 @@ class HydraStarDistPlugin(QWidget):
         else:
             wells_2d = wells_data
             plaque_2d = plaque_data
+        
         # Get unique well ids and their centers
-        well_ids = np.unique(wells_2d)
-        well_ids = well_ids[well_ids != 0]
-        well_centers = []
-        for wid in well_ids:
-            ys, xs = np.where(wells_2d == wid)
-            if len(xs) == 0 or len(ys) == 0:
-                continue
-            center_x = np.mean(xs)
-            center_y = np.mean(ys)
-            well_centers.append((wid, (center_x, center_y)))
+        well_centers = get_well_centers(wells_2d)
         if not well_centers:
             return [0]*6, [0.0]*6, 0.0, 0.0
-        # If more than 6 wells, select 6 closest to centroid
-        if len(well_centers) > 6:
-            centroid_x = np.mean([cx for _, (cx, cy) in well_centers])
-            centroid_y = np.mean([cy for _, (cx, cy) in well_centers])
-            well_centers = sorted(
-                well_centers,
-                key=lambda item: np.sqrt((item[1][0] - centroid_x)**2 + (item[1][1] - centroid_y)**2)
-            )[:6]
-        min_x, max_x = min(cx for _, (cx, _) in well_centers), max(cx for _, (cx, _) in well_centers)
-        x_dist = max_x - min_x
-        min_y, max_y = min(cy for _, (_, cy) in well_centers), max(cy for _, (_, cy) in well_centers)
-        y_dist = max_y - min_y
-        ordered_wells = {}
-        for wid, (cx, cy) in well_centers:
-            x_d = (cx - min_x) / x_dist if x_dist > 0 else 0
-            if x_d < 0.25:
-                x_i = 0
-            elif x_d < 0.75:
-                x_i = 1
-            else:
-                x_i = 2
-            y_d = (cy - min_y) / y_dist if y_dist > 0 else 0
-            if y_d < 0.5:
-                y_i = 0
-            else:
-                y_i = 1
-            bin_idx = x_i + 3 * y_i
-            ordered_wells[bin_idx] = wid
-        # For each well, count plaques and compute average area
-        plaque_counts = [0] * 6
-        avg_areas = [0.0] * 6
-        for bin_idx in range(6):
-            wid = ordered_wells.get(bin_idx, None)
-            if wid is None:
-                continue
-            mask_well = (wells_2d == wid)
-            plaque_labels_in_well = plaque_2d[mask_well]
-            unique_plaques = np.unique(plaque_labels_in_well)
-            unique_plaques = unique_plaques[unique_plaques != 0]
-            plaque_counts[bin_idx] = len(unique_plaques)
-            # For each plaque, compute area (number of pixels in well AND plaque)
-            areas = []
-            for pid in unique_plaques:
-                area = np.sum((plaque_2d == pid) & mask_well)
-                areas.append(area)
-            avg_areas[bin_idx] = np.mean(areas) if areas else 0.0
+
+        # Sort wells into grid
+        ordered_wells = sort_wells_grid(well_centers)
+
+        # Calculate stats
+        plaque_counts, avg_areas = calculate_well_stats(wells_2d, plaque_2d, ordered_wells)
+
         # Compute average well diameter in pixels
-        well_diameters = []
-        for wid, (cx, cy) in well_centers:
-            yx = np.column_stack(np.where(wells_2d == wid))
-            if yx.shape[0] == 0:
-                continue
-            dists = np.sqrt((yx[:, 1] - cx)**2 + (yx[:, 0] - cy)**2)
-            diameter = 2 * np.max(dists)
-            well_diameters.append(diameter)
-        avg_well_diameter_px = np.mean(well_diameters) if well_diameters else 0.0
+        avg_well_diameter_px = calculate_well_diameters(wells_2d, well_centers)
+
         px_per_cm = avg_well_diameter_px / well_diameter_mm if well_diameter_mm > 0 else 0.0
         return plaque_counts, avg_areas, avg_well_diameter_px, px_per_cm
 
@@ -708,14 +654,9 @@ class HydraStarDistPlugin(QWidget):
         # Get UI resize targets
         target_width = int(self.target_width_spin.value())
         target_height = int(self.target_height_spin.value())
+        
         # Prepare colormaps
-        color_dict = {0: (0, 0, 0, 0)}
-        color_dict[None] = (1, 1, 1, 1)
-        white_cmap = DirectLabelColormap(color_dict=color_dict)
-
-        color_dict_blue = {0: (0, 0, 0, 0)}
-        color_dict_blue[None] = (0, 194/255, 1, 1)
-        blue_cmap = DirectLabelColormap(color_dict=color_dict_blue)
+        white_cmap, blue_cmap = create_hydra_colormaps()
 
         wells_layer_name = f"{selected_name} Wells"
         plaque_layer_name = f"{selected_name} Plaque"
@@ -727,21 +668,15 @@ class HydraStarDistPlugin(QWidget):
             # Create empty arrays to accumulate labels
             wells_labels_stack = np.zeros((n_frames, h, w), dtype=np.int32)
             plaque_labels_stack = np.zeros((n_frames, h, w), dtype=np.int32)
-            # Add layers if not present
-            if wells_layer_name in self.viewer.layers:
-                wells_layer = self.viewer.layers[wells_layer_name]
-            else:
-                wells_layer = self.viewer.add_labels(
-                    wells_labels_stack[:1], name=wells_layer_name,
-                    blending="multiplicative", colormap=white_cmap
-                )
-            if plaque_layer_name in self.viewer.layers:
-                plaque_layer = self.viewer.layers[plaque_layer_name]
-            else:
-                plaque_layer = self.viewer.add_labels(
-                    plaque_labels_stack[:1], name=plaque_layer_name,
-                    blending="additive", colormap=blue_cmap
-                )
+            
+            # Add/Get layers
+            wells_layer = get_or_create_layer(
+                self.viewer, wells_layer_name, wells_labels_stack[:1], white_cmap, "multiplicative"
+            )
+            plaque_layer = get_or_create_layer(
+                self.viewer, plaque_layer_name, plaque_labels_stack[:1], blue_cmap, "additive"
+            )
+
             # Set colormap (in case layer existed)
             wells_layer.colormap = white_cmap
             plaque_layer.colormap = blue_cmap
@@ -784,23 +719,15 @@ class HydraStarDistPlugin(QWidget):
             self.plaque_labels = plaque_labels
             wells_labels_arr, _ = rasterize_labels(well_labels, (h, w))
             plaque_labels_arr, _ = rasterize_labels(plaque_labels, (h, w))
-            # Add/update layers
-            if wells_layer_name in self.viewer.layers:
-                wells_layer = self.viewer.layers[wells_layer_name]
-                wells_layer.data = wells_labels_arr
-            else:
-                wells_layer = self.viewer.add_labels(
-                    wells_labels_arr, name=wells_layer_name,
-                    blending="multiplicative", colormap=white_cmap
-                )
-            if plaque_layer_name in self.viewer.layers:
-                plaque_layer = self.viewer.layers[plaque_layer_name]
-                plaque_layer.data = plaque_labels_arr
-            else:
-                plaque_layer = self.viewer.add_labels(
-                    plaque_labels_arr, name=plaque_layer_name,
-                    blending="additive", colormap=blue_cmap
-                )
+            
+            # Add/Get layers
+            wells_layer = get_or_create_layer(
+                self.viewer, wells_layer_name, wells_labels_arr, white_cmap, "multiplicative"
+            )
+            plaque_layer = get_or_create_layer(
+                self.viewer, plaque_layer_name, plaque_labels_arr, blue_cmap, "additive"
+            )
+
             wells_layer.colormap = white_cmap
             plaque_layer.colormap = blue_cmap
             plaque_layer.contour = 2
