@@ -13,18 +13,18 @@ def get_metric(
     metric_name: str,
     **kwargs,
     ) -> Metric:
-    if metric_name.lower() == "dice" | "dicecoeff" | "dicecoefficient":
+    name = metric_name.lower()
+    if name in ("dice", "dicecoeff", "dicecoefficient"):
             return DiceCoeff(**kwargs)
-    if metric_name.lower() == "mse":
+    if name == "mse":
             return MeanSquaredError(**kwargs)
-    if metric_name.lower() == "cce" | "categoricalcrossentropy":
+    if name in ("cce", "categoricalcrossentropy"):
             return CategoricalCrossentropy(**kwargs)
-    if metric_name.lower() == "bce" | "binarycrossentropy":
+    if name in ("bce", "binarycrossentropy"):
             return BinaryCrossentropy(**kwargs)
-    if metric_name.lower() == "categoricalaccuracy":
+    if name == "categoricalaccuracy":
             return CategoricalAccuracy(**kwargs)
-    if metric_name.lower() == _:
-            raise ValueError(f"Unknown metric: {metric_name}")
+    raise ValueError(f"Unknown metric: {metric_name}")
 
 
 def dice_coeff(
