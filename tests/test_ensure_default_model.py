@@ -1,12 +1,19 @@
 import os
+import sys
+import importlib
 from unittest.mock import MagicMock, patch
-from napari_hydra.utils.ensure_default_model import ensure_default_model
 
-@patch('napari_hydra.utils.ensure_default_model.urllib.request.urlretrieve')
-@patch('napari_hydra.utils.ensure_default_model.zipfile.ZipFile')
-@patch('napari_hydra.utils.ensure_default_model.os.listdir')
-@patch('napari_hydra.utils.ensure_default_model.os.path.isdir')
+# Force-import the actual module (not the function re-exported by __init__.py)
+importlib.import_module('napari_hydra.utils.ensure_default_model')
+_mod = sys.modules['napari_hydra.utils.ensure_default_model']
+MODULE = _mod.__name__
+
+@patch(f'{MODULE}.urllib.request.urlretrieve')
+@patch(f'{MODULE}.zipfile.ZipFile')
+@patch(f'{MODULE}.os.listdir')
+@patch(f'{MODULE}.os.path.isdir')
 def test_ensure_default_model_download(mock_isdir, mock_listdir, mock_zipfile, mock_urlretrieve):
+    from napari_hydra.utils.ensure_default_model import ensure_default_model
     # Setup
     dest_dir = "/fake/models"
     zip_url = "http://fake.com/model.zip"
@@ -20,11 +27,8 @@ def test_ensure_default_model_download(mock_isdir, mock_listdir, mock_zipfile, m
     mock_urlretrieve.assert_not_called()
     
     # Case 2: No models, download required
-    # First call to listdir returns empty (check for existing)
-    # Second call (at end) returns downloaded model
     mock_listdir.side_effect = [[], ["downloaded_model"]]
     
-    # Mock zipfile extraction
     mock_zip_instance = MagicMock()
     mock_zipfile.return_value.__enter__.return_value = mock_zip_instance
     
@@ -34,12 +38,12 @@ def test_ensure_default_model_download(mock_isdir, mock_listdir, mock_zipfile, m
     mock_zip_instance.extractall.assert_called_once_with(dest_dir)
     assert "downloaded_model" in dirs
 
-@patch('napari_hydra.utils.ensure_default_model.urllib.request.urlretrieve')
-@patch('napari_hydra.utils.ensure_default_model.shutil.unpack_archive')
-@patch('napari_hydra.utils.ensure_default_model.zipfile.ZipFile')
-@patch('napari_hydra.utils.ensure_default_model.os.listdir')
+@patch(f'{MODULE}.urllib.request.urlretrieve')
+@patch(f'{MODULE}.shutil.unpack_archive')
+@patch(f'{MODULE}.zipfile.ZipFile')
+@patch(f'{MODULE}.os.listdir')
 def test_ensure_default_model_fallback(mock_listdir, mock_zipfile, mock_unpack, mock_urlretrieve):
-    # Test fallback to shutil if BadZipFile
+    from napari_hydra.utils.ensure_default_model import ensure_default_model
     import zipfile
     dest_dir = "/fake/models"
     zip_url = "http://fake.com/model.zip"
