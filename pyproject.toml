@@ -6,9 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "napari-hydra"
 version = "0.0.3"
 authors = [
-  { name="Henrique Romão", email="henriquepromao@outlook.com" },
-  { name="Trina De", email="t.de@hzdr.de" },
-  { name="Artur Yakimovich", email="a.yakimovich@hzdr.de" },
+  { name="H. Romão, T. De, A. Yakimovich", email="a.yakimovich@hzdr.de" },
 ]
 description = "Napari Hydra Plugin - GUI-based nested object detection"
 readme = "README.md"
@@ -22,6 +20,7 @@ classifiers = [
     'Programming Language :: Python :: 3.9',
     'Programming Language :: Python :: 3.10',
     'Programming Language :: Python :: 3.11',
+    'Programming Language :: Python :: 3.12',
 ]
 license = "BSD-3-Clause"
 license-files = ["LICEN[CS]E*"]
@@ -41,8 +40,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/casus/HydraStarDist"
-Issues = "https://github.com/casus/HydraStarDist/issues"
+Homepage = "https://github.com/plaque2/napari-hydra"
+Issues = "https://github.com/plaque2/napari-hydra/issues"
 
 [project.optional-dependencies]
 tf1 = [
