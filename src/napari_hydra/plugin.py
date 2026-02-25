@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 import numpy as np
 from skimage import img_as_float32
 from skimage.draw import polygon
@@ -879,7 +880,6 @@ class HydraStarDistPlugin(QWidget):
         self.model.keras_model.fit(X_train, Y_train, epochs=epochs, batch_size=batch_size)
 
         # Save fine-tuned model to a new uniquely-named directory
-        from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         new_model_name = f"{selected_model}-{timestamp}"
         new_model_dir = os.path.join(model_basedir, new_model_name)
