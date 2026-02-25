@@ -36,8 +36,16 @@ def get_or_create_layer(viewer, layer_name, layer_data, colormap, blending):
     if layer_name in viewer.layers:
         layer = viewer.layers[layer_name]
     else:
-        layer = viewer.add_labels(
-            layer_data, name=layer_name,
-            blending=blending, colormap=colormap
-        )
+        try:
+            layer = viewer.add_labels(
+                layer_data, name=layer_name,
+                blending=blending, colormap=colormap
+            )
+        except ValueError:
+            # Fallback for older napari versions that don't support
+            # all blending modes (e.g. 'multiplicative' added in 0.6)
+            layer = viewer.add_labels(
+                layer_data, name=layer_name,
+                blending="translucent", colormap=colormap
+            )
     return layer
