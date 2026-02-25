@@ -877,9 +877,22 @@ class HydraStarDistPlugin(QWidget):
         self.model.keras_model.compile(optimizer=optimizer, loss="mse")
         show_info("Tuning the model...")
         self.model.keras_model.fit(X_train, Y_train, epochs=epochs, batch_size=batch_size)
-        self.model.keras_model.save_weights(os.path.join(model_basedir, selected_model, "weights_best.h5"))
-        self.model.keras_model.load_weights(os.path.join(model_basedir, selected_model, "weights_best.h5"))
-        show_info("Model tuned!")
+
+        # Save fine-tuned model to a new uniquely-named directory
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        new_model_name = f"{selected_model}-{timestamp}"
+        new_model_dir = os.path.join(model_basedir, new_model_name)
+        shutil.copytree(os.path.join(model_basedir, selected_model), new_model_dir)
+        self.model.keras_model.save_weights(os.path.join(new_model_dir, "weights_best.h5"))
+        self.model.keras_model.save_weights(os.path.join(new_model_dir, "weights_last.h5"))
+
+        # Add new model to dropdown and switch to it
+        self.model_names.append(new_model_name)
+        self.model_combo.addItem(new_model_name)
+        self.model_combo.setCurrentText(new_model_name)
+
+        show_info(f"Model tuned and saved as '{new_model_name}'!")
         self.run_prediction()
         show_info("Prediction updated!")
 
