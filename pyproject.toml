@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "napari-hydra"
-version = "0.0.4"
+version = "0.0.5"
 authors = [
   { name="H. Romão, T. De, A. Yakimovich", email="a.yakimovich@hzdr.de" },
 ]
@@ -22,8 +22,7 @@ classifiers = [
     'Programming Language :: Python :: 3.11',
     'Programming Language :: Python :: 3.12',
 ]
-license = "BSD-3-Clause"
-license-files = ["LICEN[CS]E*"]
+license = { text = "BSD-3-Clause" }
 dependencies = [
     "napari[all]",
     "csbdeep>=0.7.4",
@@ -49,6 +48,7 @@ tf1 = [
 ]
 test = [
     "pytest>=7.2.0",
+    "pyyaml>=6.0",
 ]
 bioimageio = [
     "bioimageio.core>=0.5.0",
@@ -61,8 +61,13 @@ napari-hydra = "napari_hydra:napari.yaml"
 [tool.setuptools]
 package-dir = { "" = "src" }
 include-package-data = true
+license-files = ["LICEN[CS]E*"]
 
 [tool.setuptools.package-data]
+napari_hydra = [
+    "napari.yaml",
+    "resources/**/*",
+]
 stardist = [
     "kernels/*.cl",
     "data/images/*",
