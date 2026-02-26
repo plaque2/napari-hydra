@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "napari-hydra"
-version = "0.0.3"
+version = "0.0.4"
 authors = [
   { name="H. Romão, T. De, A. Yakimovich", email="a.yakimovich@hzdr.de" },
 ]

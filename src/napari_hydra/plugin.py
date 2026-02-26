@@ -13,8 +13,8 @@ import napari
 from napari.layers import Labels
 from napari.utils.colormaps import DirectLabelColormap
 from napari.utils.notifications import show_info
-from qtpy.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox, QDoubleSpinBox, QGridLayout, QSizePolicy, QFrame, QApplication, QFileDialog, QMessageBox
-from qtpy.QtGui import QPixmap, QIcon
+from qtpy.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox, QDoubleSpinBox, QGridLayout, QSizePolicy, QFrame, QApplication, QFileDialog, QMessageBox, QLineEdit
+from qtpy.QtGui import QPixmap, QIcon, QDoubleValidator
 from qtpy.QtCore import Qt
 
 from csbdeep.utils import normalize
@@ -56,7 +56,7 @@ class HydraStarDistPlugin(QWidget):
             - Prediction
                 - Selection of image, model, and compression size.
                 - Finetuning of thresholds parameters.
-            - Counting
+            - 6-well Plate Counting
                 - Counts plaques in each well.
             - Tuning
                 - Allows to callibrate the model.
@@ -363,11 +363,11 @@ class HydraStarDistPlugin(QWidget):
         prediction_btn_layout.addWidget(self.export_btn)
         layout.addLayout(prediction_btn_layout)
 
-        ## COUNTING
+        ## 6-well Plate COUNTING
         ## ---------------------------------------------------------------------------------
         layout.addSpacing(10)
         counting_header_layout = QHBoxLayout()
-        counting_label = QLabel("<h2>Counting</h2>")
+        counting_label = QLabel("<h2>6-well Plate Counting</h2>")
         counting_header_layout.addWidget(counting_label)
         counting_header_layout.addStretch()
         layout.addLayout(counting_header_layout)
@@ -429,7 +429,7 @@ class HydraStarDistPlugin(QWidget):
         self.batch_spin.setRange(1, 1000)
         self.batch_spin.setSingleStep(1)
         self.batch_spin.setDecimals(0)
-        self.batch_spin.setValue(5)
+        self.batch_spin.setValue(4)
         self.batch_spin.setAlignment(Qt.AlignCenter)
         self.batch_spin.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.batch_spin.setStyleSheet("padding: 2px;")
@@ -449,15 +449,16 @@ class HydraStarDistPlugin(QWidget):
 
         # Learning Rate
         tuning_grid.addWidget(QLabel("Learning Rate"), 0, 2)
-        self.lr_spin = QDoubleSpinBox()
-        self.lr_spin.setRange(0, 1)
-        self.lr_spin.setSingleStep(0.0001)
-        self.lr_spin.setDecimals(4)
-        self.lr_spin.setValue(0.001)
-        self.lr_spin.setAlignment(Qt.AlignCenter)
-        self.lr_spin.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.lr_spin.setStyleSheet("padding: 2px;")
-        tuning_grid.addWidget(self.lr_spin, 1, 2)
+        self.lr_input = QLineEdit()
+        self.lr_input.setText("1e-4")
+        self.lr_input.setAlignment(Qt.AlignCenter)
+        self.lr_input.setPlaceholderText("e.g., 1e-4 or 0.001")
+        validator = QDoubleValidator()
+        validator.setNotation(QDoubleValidator.ScientificNotation)
+        self.lr_input.setValidator(validator)
+        self.lr_input.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.lr_input.setStyleSheet("padding: 2px;")
+        tuning_grid.addWidget(self.lr_input, 1, 2)
 
         layout.addLayout(tuning_grid)
         layout.addSpacing(5)
@@ -871,7 +872,7 @@ class HydraStarDistPlugin(QWidget):
         n_frames = image.shape[0]
         batch_size = min(int(self.batch_spin.value()), n_frames) if is_stack else 1
         epochs = int(self.epochs_spin.value())
-        learning_rate = float(self.lr_spin.value())
+        learning_rate = float(self.lr_input.text())
 
         # Compile and train with specified optimizer and parameters
         optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
