@@ -61,7 +61,10 @@ def prepare_training_batches(image, wells, plaque, is_stack, target_width, targe
             img2d = np.squeeze(image)
             wells2d = np.squeeze(wells)
             plaque2d = np.squeeze(plaque)
-        X, dist1, prob1, dist2, prob2 = process_frame(img2d, wells2d, plaque2d)
+        X, dist1, prob1, dist2, prob2 = process_frame(
+            img2d, wells2d, plaque2d,
+            target_width, target_height, config
+        )
         X_train = np.expand_dims(X, 0)
         Y_train = {
             'dist1': np.expand_dims(dist1, 0),

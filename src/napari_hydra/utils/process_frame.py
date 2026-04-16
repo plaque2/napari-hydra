@@ -46,10 +46,22 @@ def process_frame(img2d, wells2d, plaque2d, target_width, target_height, config)
     wells_resized = wells2d[y_indices[:, None], x_indices[None, :]]
     plaque_resized = plaque2d[y_indices[:, None], x_indices[None, :]]
 
-    # Ensure input has channel axis
+    # Ensure input has channel axis and correct number of channels
     X = image_norm.astype(np.float32)
-    if X.ndim == 2:
-        X = np.expand_dims(X, -1)
+
+    n_channel_in = getattr(config, 'n_channel_in', 1)
+    if n_channel_in == 3:
+        if X.ndim == 2:
+            X = np.repeat(X[..., np.newaxis], 3, axis=-1)
+        elif X.ndim == 3 and X.shape[-1] == 1:
+            X = np.repeat(X, 3, axis=-1)
+        elif X.ndim == 3 and X.shape[-1] >= 4:
+            X = X[..., :3]
+    else:
+        if X.ndim == 2:
+            X = np.expand_dims(X, -1)
+        elif X.ndim == 3 and X.shape[-1] > 1:
+            X = X[..., 0:1]
     Y1 = wells_resized.astype(np.int32)
     Y2 = plaque_resized.astype(np.int32)
 
