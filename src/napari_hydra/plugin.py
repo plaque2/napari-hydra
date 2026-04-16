@@ -7,6 +7,7 @@ import urllib.request
 import zipfile
 import shutil
 import tempfile
+import json
 
 import dask.array as da
 import napari
@@ -906,6 +907,21 @@ class HydraStarDistPlugin(QWidget):
         new_model_name = f"{selected_model}-{timestamp}"
         new_model_dir = os.path.join(model_basedir, new_model_name)
         shutil.copytree(os.path.join(model_basedir, selected_model), new_model_dir)
+
+        # Save target input size to model config to persist resizing values
+        config_path = os.path.join(new_model_dir, "config.json")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                try:
+                    config_data = json.load(f)
+                except json.JSONDecodeError:
+                    config_data = {}
+            
+            config_data["input_size"] = [target_width, target_height]
+            
+            with open(config_path, "w") as f:
+                json.dump(config_data, f, indent=4)
+
         self.model.keras_model.save_weights(os.path.join(new_model_dir, "weights_best.h5"))
         self.model.keras_model.save_weights(os.path.join(new_model_dir, "weights_last.h5"))
 
