@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "napari-hydra"
-version = "0.0.5"
+version = "0.0.6"
 authors = [
   { name="H. Romão, T. De, A. Yakimovich", email="a.yakimovich@hzdr.de" },
 ]
@@ -29,6 +29,7 @@ dependencies = [
     "scikit-image",
     "numba",
   "imageio",
+  "imagecodecs",
   "stardist>=0.9.1",
   # TensorFlow is required at runtime by the package (tensorflow.keras is used
   # extensively). Add a conservative >=2.6 bound because the code expects
@@ -72,3 +73,6 @@ stardist = [
     "kernels/*.cl",
     "data/images/*",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

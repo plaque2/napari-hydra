@@ -623,6 +623,17 @@ class HydraStarDistPlugin(QWidget):
         img = img_as_float32(resized)
         axis_norm = (0, 1)
         img = normalize(img, 1, 99.8, axis=axis_norm)
+        
+        # Ensure image has correct number of channels for the model
+        n_channel_in = getattr(self.model.config, 'n_channel_in', 1)
+        if n_channel_in == 3:
+            if img.ndim == 2:
+                img = np.repeat(img[..., np.newaxis], 3, axis=-1)
+            elif img.ndim == 3 and img.shape[-1] == 1:
+                img = np.repeat(img, 3, axis=-1)
+            elif img.ndim == 3 and img.shape[-1] == 4:
+                img = img[..., :3]
+
         labels1, labels2 = self.model.predict_instances(
             img,
             prob_thresh1=self.wells_prob_spin.value(),
@@ -648,13 +659,23 @@ class HydraStarDistPlugin(QWidget):
             return
         image_layer = self.viewer.layers[selected_name]
         # Convert Dask array to numpy if needed
-        if isinstance(image_layer, Labels) and isinstance(image_layer.data, da.Array):
-            image_layer.data = image_layer.data.compute()
-        image = image_layer.data
+        if hasattr(image_layer, 'data'):
+            image = image_layer.data
+        else:
+            image = image_layer
+            
+        if hasattr(image, "compute"):
+            image = image.compute()
+
+        # Standardize image axes: convert channel-first like (C, Y, X) or (C, Z, Y, X) 
+        # to channel-last (Y, X, C) or (Z, Y, X, C)
+        if image.ndim in (3, 4) and not getattr(image_layer, 'rgb', False):
+            if image.shape[0] in (3, 4) and image.shape[-1] > 5:
+                image = np.moveaxis(image, 0, -1)
 
         # Detect if input is a stack: [z, y, x] or [z, y, x, c]
         is_stack = False
-        if image.ndim == 3 and image.shape[-1] > 3: 
+        if image.ndim == 3 and not getattr(image_layer, 'rgb', False) and image.shape[-1] > 4: 
             is_stack = True
         elif image.ndim == 4 and image.shape[0] > 1:
             is_stack = True
