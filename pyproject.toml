@@ -73,3 +73,6 @@ stardist = [
     "kernels/*.cl",
     "data/images/*",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
