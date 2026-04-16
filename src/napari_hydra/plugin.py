@@ -109,7 +109,27 @@ class HydraStarDistPlugin(QWidget):
         self.image_layer_combo = RefreshOnShowComboBox()
         selection_grid.addWidget(self.image_layer_combo, 1, 0)
 
-        selection_grid.addWidget(QLabel("Model"), 0, 1)
+        model_header_widget = QWidget()
+        model_header_layout = QHBoxLayout()
+        model_header_layout.setContentsMargins(0, 0, 0, 0)
+        model_header_layout.setSpacing(5)
+        model_header_layout.addWidget(QLabel("Model"))
+        model_header_layout.addStretch()
+        
+        self.import_model_btn = QPushButton("📥")
+        self.import_model_btn.setFixedSize(24, 24)
+        self.import_model_btn.setToolTip("Import Model (.zip)")
+        self.import_model_btn.clicked.connect(self.import_model_artifact)
+        model_header_layout.addWidget(self.import_model_btn)
+        
+        self.export_model_btn = QPushButton("📤")
+        self.export_model_btn.setFixedSize(24, 24)
+        self.export_model_btn.setToolTip("Export Model (.zip)")
+        self.export_model_btn.clicked.connect(self.export_model_artifact)
+        model_header_layout.addWidget(self.export_model_btn)
+        
+        model_header_widget.setLayout(model_header_layout)
+        selection_grid.addWidget(model_header_widget, 0, 1)
         self.model_combo = QComboBox()
         model_basedir = os.path.join(plugin_dir, "resources", "models")
 
@@ -933,6 +953,88 @@ class HydraStarDistPlugin(QWidget):
         show_info(f"Model tuned and saved as '{new_model_name}'!")
         self.run_prediction()
         show_info("Prediction updated!")
+
+    def export_model_artifact(self):
+        selected_model = self.model_combo.currentText()
+        if not selected_model:
+            QMessageBox.warning(self, "Export Model", "No model selected to export.")
+            return
+
+        plugin_dir = os.path.dirname(__file__)
+        model_basedir = os.path.join(plugin_dir, "resources", "models")
+        model_dir = os.path.join(model_basedir, selected_model)
+        
+        if not os.path.exists(model_dir):
+            QMessageBox.critical(self, "Export Model", f"Model directory not found:\n{model_dir}")
+            return
+
+        save_path, _ = QFileDialog.getSaveFileName(
+            self, "Export Model", f"{selected_model}.zip", "ZIP Files (*.zip)"
+        )
+        
+        if not save_path:
+            return
+
+        try:
+            # shutil.make_archive adds the .zip extension, so remove it if present
+            base_name = save_path
+            if base_name.endswith('.zip'):
+                base_name = base_name[:-4]
+            
+            shutil.make_archive(base_name, 'zip', model_dir)
+            QMessageBox.information(self, "Export Model", f"Model exported successfully to:\n{base_name}.zip")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Model", f"Failed to export model:\n{e}")
+
+    def import_model_artifact(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Import Model", "", "ZIP Files (*.zip)"
+        )
+        
+        if not file_path:
+            return
+
+        try:
+            plugin_dir = os.path.dirname(__file__)
+            model_basedir = os.path.join(plugin_dir, "resources", "models")
+            
+            # Use base filename as the new model name
+            base_name = os.path.basename(file_path)
+            new_model_name = base_name[:-4] if base_name.lower().endswith('.zip') else base_name
+            
+            # Avoid overwriting existing models unless we append a timestamp or suffix
+            if new_model_name in self.model_names or os.path.exists(os.path.join(model_basedir, new_model_name)):
+                timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                new_model_name = f"{new_model_name}-{timestamp}"
+            
+            dest_dir = os.path.join(model_basedir, new_model_name)
+            os.makedirs(dest_dir, exist_ok=True)
+            
+            # Extract
+            with zipfile.ZipFile(file_path, 'r') as zip_ref:
+                zip_ref.extractall(dest_dir)
+                
+            # Verify valid model (needs at least config.json)
+            # If it extracted into a single subdirectory, move things up
+            extracted_items = os.listdir(dest_dir)
+            if len(extracted_items) == 1 and os.path.isdir(os.path.join(dest_dir, extracted_items[0])):
+                sub_dir = os.path.join(dest_dir, extracted_items[0])
+                for item in os.listdir(sub_dir):
+                    shutil.move(os.path.join(sub_dir, item), dest_dir)
+                os.rmdir(sub_dir)
+            
+            if not os.path.exists(os.path.join(dest_dir, "config.json")):
+                shutil.rmtree(dest_dir)
+                QMessageBox.critical(self, "Import Model", "Invalid model format: config.json missing.")
+                return
+
+            self.model_names.append(new_model_name)
+            self.model_combo.addItem(new_model_name)
+            self.model_combo.setCurrentText(new_model_name)
+            QMessageBox.information(self, "Import Model", f"Model successfully imported as '{new_model_name}'.")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Import Model", f"Failed to import model:\n{e}")
 
 def napari_experimental_provide_dock_widget():
     """This function makes the widget discoverable by napari as a plugin dock widget"""
