@@ -128,6 +128,12 @@ class HydraStarDistPlugin(QWidget):
         self.export_model_btn.clicked.connect(self.export_model_artifact)
         model_header_layout.addWidget(self.export_model_btn)
         
+        self.delete_model_btn = QPushButton("🗑")
+        self.delete_model_btn.setFixedSize(24, 24)
+        self.delete_model_btn.setToolTip("Delete Model")
+        self.delete_model_btn.clicked.connect(self.delete_model_artifact)
+        model_header_layout.addWidget(self.delete_model_btn)
+        
         model_header_widget.setLayout(model_header_layout)
         selection_grid.addWidget(model_header_widget, 0, 1)
         self.model_combo = QComboBox()
@@ -1035,6 +1041,43 @@ class HydraStarDistPlugin(QWidget):
             
         except Exception as e:
             QMessageBox.critical(self, "Import Model", f"Failed to import model:\n{e}")
+
+    def delete_model_artifact(self):
+        selected_model = self.model_combo.currentText()
+        if not selected_model:
+            QMessageBox.warning(self, "Delete Model", "No model selected to delete.")
+            return
+
+        if selected_model == "VACV-Plaque":
+            QMessageBox.warning(self, "Delete Model", "The default 'VACV-Plaque' model cannot be deleted.")
+            return
+
+        reply = QMessageBox.question(
+            self, "Delete Model", 
+            f"Are you sure you want to permanently delete the model '{selected_model}'?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            plugin_dir = os.path.dirname(__file__)
+            model_basedir = os.path.join(plugin_dir, "resources", "models")
+            model_dir = os.path.join(model_basedir, selected_model)
+            
+            try:
+                if os.path.exists(model_dir):
+                    shutil.rmtree(model_dir)
+                    
+                # Remove from combo box and list
+                idx = self.model_combo.findText(selected_model)
+                if idx >= 0:
+                    self.model_combo.removeItem(idx)
+                if selected_model in self.model_names:
+                    self.model_names.remove(selected_model)
+                    
+                # The combo box will automatically select another model and trigger change_model.
+                QMessageBox.information(self, "Delete Model", f"Model '{selected_model}' has been deleted.")
+            except Exception as e:
+                QMessageBox.critical(self, "Delete Model", f"Failed to delete model:\n{e}")
 
 def napari_experimental_provide_dock_widget():
     """This function makes the widget discoverable by napari as a plugin dock widget"""
